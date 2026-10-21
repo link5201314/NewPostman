@@ -6,6 +6,8 @@ NewPostman 是以 Python、PySide6 建立的本機桌面 API 測試工具，聚�
 
 本文件先記錄架構與核心原型程式碼，不建立對應 Python 模組，也不實作 UI。
 
+Before/After Script 使用 Python 並視為受信任程式碼的決策，詳見 `docs/adr/0001-python-request-scripts.md`。
+
 ## 建議目錄結構
 
 ```text
