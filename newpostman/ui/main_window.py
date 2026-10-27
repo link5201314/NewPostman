@@ -27,6 +27,7 @@ from newpostman.models.collection import CollectionModel
 from newpostman.models.request import RequestModel
 from newpostman.ui.environment_manager import EnvironmentManagerDialog
 from newpostman.ui.request_editor import RequestEditor
+from newpostman.ui.runner_panel import RunnerPanel
 
 
 class MainWindow(QMainWindow):
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
         default_project_path = Path.home() / ".newpostman" / "project.json"
         self.store = store or ProjectStore(default_project_path)
         self._client = client
+        self._runner_panel: RunnerPanel | None = None
         self.setWindowTitle("NewPostman")
         self.resize(1100, 760)
 
@@ -77,6 +79,9 @@ class MainWindow(QMainWindow):
         self.save_as_button = QPushButton("Save As")
         self.save_as_button.setObjectName("saveRequestAs")
         self.save_as_button.clicked.connect(self.save_request_as)
+        self.run_button = QPushButton("Run")
+        self.run_button.setObjectName("openRunner")
+        self.run_button.clicked.connect(self.open_runner_tab)
 
         toolbar = QWidget()
         toolbar_layout = QHBoxLayout(toolbar)
@@ -87,6 +92,7 @@ class MainWindow(QMainWindow):
         toolbar_layout.addWidget(self.add_collection_button)
         toolbar_layout.addWidget(self.new_request_button)
         toolbar_layout.addStretch()
+        toolbar_layout.addWidget(self.run_button)
         toolbar_layout.addWidget(self.save_button)
         toolbar_layout.addWidget(self.save_as_button)
 
@@ -187,6 +193,22 @@ class MainWindow(QMainWindow):
         """
         return self._add_request_tab(RequestModel(), collection_id=None)
 
+    def open_runner_tab(self) -> RunnerPanel:
+        """開啟或聚焦 Runner 工作分頁。"""
+        if self._runner_panel is not None:
+            tab_index = self.workspace_tabs.indexOf(self._runner_panel)
+            if tab_index >= 0:
+                self._runner_panel.refresh_collections()
+                self._runner_panel.refresh_environment()
+                self.workspace_tabs.setCurrentIndex(tab_index)
+                return self._runner_panel
+
+        panel = RunnerPanel(self.store, client=self._client)
+        self._runner_panel = panel
+        tab_index = self.workspace_tabs.addTab(panel, "Runner")
+        self.workspace_tabs.setCurrentIndex(tab_index)
+        return panel
+
     def open_collection_request(
         self,
         collection_id: UUID,
@@ -227,6 +249,8 @@ class MainWindow(QMainWindow):
         Returns:
             若成功儲存則回傳 True；若使用者取消或資料無效則回傳 False。
         """
+        if not isinstance(self.workspace_tabs.currentWidget(), RequestEditor):
+            return False
         editor = self.request_editor
         try:
             request = editor.build_request()
@@ -299,6 +323,15 @@ class MainWindow(QMainWindow):
             分頁已關閉時回傳 True，取消關閉時回傳 False。
         """
         editor = self.workspace_tabs.widget(index)
+        if isinstance(editor, RunnerPanel):
+            if editor.runner.is_running:
+                editor.runner.cancel()
+                editor.summary_label.setText("正在取消；目前 Request 結束後即可關閉。")
+                return False
+            self.workspace_tabs.removeTab(index)
+            editor.deleteLater()
+            self._runner_panel = None
+            return True
         if not isinstance(editor, RequestEditor):
             return False
         if editor.is_dirty and not self._resolve_dirty_editor(editor):
@@ -325,9 +358,15 @@ class MainWindow(QMainWindow):
             ):
                 event.ignore()
                 return
+            if isinstance(editor, RunnerPanel) and editor.runner.is_running:
+                editor.runner.cancel()
+                event.ignore()
+                return
         for index in range(self.workspace_tabs.count()):
             editor = self.workspace_tabs.widget(index)
             if isinstance(editor, RequestEditor):
+                editor.close()
+            elif isinstance(editor, RunnerPanel):
                 editor.close()
         event.accept()
 
@@ -439,6 +478,8 @@ class MainWindow(QMainWindow):
             environments_root.addChild(environment_item)
 
         self.resource_tree.expandAll()
+        if self._runner_panel is not None:
+            self._runner_panel.refresh_collections()
 
     def _refresh_environments(self) -> None:
         environments = self.store.list_environments()
@@ -459,6 +500,8 @@ class MainWindow(QMainWindow):
         self.environment_selector.setCurrentIndex(active_index)
         self.environment_selector.setEnabled(bool(environments))
         self.environment_selector.blockSignals(False)
+        if self._runner_panel is not None:
+            self._runner_panel.refresh_environment()
 
     def _set_active_environment(self, index: int) -> None:
         if index < 0:
@@ -537,9 +580,12 @@ class MainWindow(QMainWindow):
         """
         self.save_as_button.setEnabled(self.workspace_tabs.count() > 0)
         editor = self.workspace_tabs.currentWidget()
-        self.save_button.setEnabled(
-            isinstance(editor, RequestEditor) and editor.is_dirty
-        )
+        if isinstance(editor, RequestEditor):
+            self.save_button.setEnabled(editor.is_dirty)
+            self.save_as_button.setEnabled(True)
+        else:
+            self.save_button.setEnabled(False)
+            self.save_as_button.setEnabled(False)
         self._update_request_order_buttons()
 
     def _update_current_tab_title(self) -> None:

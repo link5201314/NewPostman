@@ -4,7 +4,7 @@
 
 NewPostman 是以 Python、PySide6 建立的本機桌面 API 測試工具，聚焦於參數化請求、回應萃取與依序批次執行。第一階段涵蓋單次 HTTP 呼叫、Environment、Collection、CSV/JSON Dataset、Before/After Script、回應檢視與 Runner 的核心設計；不包含 Mocks、壓力測試、雲端協作或複雜監控。
 
-本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換，以及 Collection JSON 管理和 Request 工作區；Runner、Extractor 與 Dataset 等後續功能仍是規劃項目。
+本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換、Collection JSON 管理和 Request 工作區，以及背景 Collection Runner；Extractor 與 Dataset 等後續功能仍是規劃項目。
 
 Before/After Script 使用 Python 並視為受信任程式碼的決策，詳見 `docs/adr/0001-python-request-scripts.md`。
 
@@ -53,7 +53,7 @@ NewPostman/
     └── test_dataset_loader.py
 ```
 
-目前已實作 Request、Environment 與 Collection Models、API Engine、ProjectStore、VariableEngine、單次請求、Collection 工作區與 Environment 管理 UI；Dataset、Runner 等模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
+目前已實作 Request、Environment 與 Collection Models、API Engine、ProjectStore、VariableEngine、CollectionRunner、單次請求、Collection 工作區、Runner 工作分頁與 Environment 管理 UI；Dataset 與 Extractor 等模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
 
 ## 模組責任
 
@@ -107,7 +107,7 @@ NewPostman/
 
 ## Runner 與 Qt 執行緒
 
-`ApiEngine` 維持同步、Qt 無關，方便單元測試及單次送出。Runner 在 `QThread`（或後續選用 `QRunnable + QThreadPool`）背景執行，按 Dataset 每列逐輪、Collection 內請求依序呼叫 `ApiEngine`。透過 Qt Signals 回報進度、逐項日誌、完成摘要與取消狀態；禁止在 UI 主執行緒執行同步 HTTP 呼叫。
+`ApiEngine` 維持同步、Qt 無關，方便單元測試及單次送出。`CollectionRunner` 在 `QThread` 背景執行，按 Dataset 每列逐輪（Dataset 尚未交付時執行單一集合），Collection 內請求依序呼叫 `ApiEngine`。透過 Qt Signals 回報進度、逐項日誌、Request 結果、完成摘要與取消狀態；禁止在 UI 主執行緒執行同步 HTTP 呼叫。取消會阻止下一個 Request 啟動，並等待目前同步 HTTP 呼叫安全完成。
 
 第一版不平行執行請求，以保證萃取變數可供下一個請求使用。使用者取消時，Runner 應停止排入新請求並安全結束目前工作；取消語意可在 Runner 實作階段再細化。
 

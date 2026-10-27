@@ -26,7 +26,7 @@ uv run pytest
 
 ## 目前功能
 
-目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換，以及 Collection 工作區。主視窗包含 Collections／Environments 資源樹、Request 工作分頁、Params／Headers／Body 編輯分頁與 Response Body／Headers 檢視。Collection 和 Environment 分別以 JSON 保存；Request 可從側欄開啟並在 Save As 時加入 Collection。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。Runner、Extractor 與 Dataset 仍在規劃中。
+目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換、Collection 工作區，以及背景 Runner。主視窗包含 Collections／Environments 資源樹、Request 與 Runner 工作分頁、Params／Headers／Body 編輯分頁與 Response Body／Headers 檢視。Runner 可按 Collection 順序背景執行請求、回報進度與逐項結果，並可取消後續請求；使用者仍可操作 UI。Collection 和 Environment 分別以 JSON 保存；Request 可從側欄開啟並在 Save As 時加入 Collection。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。Extractor 與 Dataset 仍在規劃中。
 
 ### 使用 Collection
 
