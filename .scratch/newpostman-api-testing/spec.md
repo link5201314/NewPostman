@@ -4,11 +4,11 @@ Status: ready-for-agent
 
 ## Problem Statement
 
-使用者需要一個本機桌面 API 測試工具，用來建立、發送及整理 HTTP 請求，並能將回應資料帶入後續請求及批次執行。現有專案只有初始入口、依賴設定與設計文件，尚未實作請求編輯、變數管理、Collection、資料集、Runner 或回應檢視功能，因此無法用一致且可重現的方式測試參數化 API 流程。
+使用者需要一個本機桌面 API 測試工具，用來建立、發送及整理 HTTP 請求，並能將回應資料帶入後續請求及批次執行。專案已完成基本單次 Request 與 Response 檢視，但目前介面仍是單一表單，缺少參考附圖所示的資源導覽、工作分頁及上下分割的編輯／回應工作區；Collections、Environment、Dataset 與 Runner 等功能也仍待實作。使用者希望借用 Postman 截圖的資訊區域安排，而非複製不在本專案範圍內的產品功能。
 
 ## Solution
 
-建立以 Python 與 PySide6 為 UI、HTTPX 為 HTTP 引擎的本機桌面 API 測試工具。使用者可單次發送 Request，透過 Environment、Dataset 與 Extractor 管理變數，並依序執行 Collection。Runner 在背景執行緒工作，以 Qt Signals 回報進度、日誌及結果，使 UI 保持回應。Project、Collection 與 Environment 使用本機 JSON 儲存；Dataset 使用 CSV 或 JSON 檔案。
+建立以 Python 與 PySide6 為 UI、HTTPX 為 HTTP 引擎的本機桌面 API 測試工具。主視窗參考附圖採用左側資源導覽、上方工作分頁、中央 Request 編輯區及下方 Response 區。側欄僅呈現本專案規劃的 Collections、Environments 與 Datasets；不複製 Postman 中未納入範圍的功能。使用者可單次發送 Request，透過 Environment、Dataset 與 Extractor 管理變數，並依序執行 Collection。Runner 在背景執行緒工作，以 Qt Signals 回報進度、日誌及結果，使 UI 保持回應。Project、Collection 與 Environment 使用本機 JSON 儲存；Dataset 使用 CSV 或 JSON 檔案。
 
 第一階段聚焦參數化與批次鏈式執行，不實作 Mocks、壓力測試、雲端協作或複雜監控。
 
@@ -49,6 +49,17 @@ Status: ready-for-agent
 33. 作為 API 使用者，我想讓 Project 以相對路徑參照獨立的 Collection、Environment 與 Dataset 檔案，以便搬移整個專案資料夾。
 34. 作為 API 使用者，我想在 JSON 檔案缺少必要欄位或型別不符時收到指出檔案與欄位的驗證錯誤，以便修復資料而非遭遇靜默損毀。
 35. 作為 API 使用者，我想取消正在執行的 Runner，讓它停止排入新的 Request 並安全結束目前工作，以便控制長時間批次工作。
+36. 作為 API 使用者，我想在左側導覽中查看 Collections、Environments 與 Datasets，以便從單一工作區找到本專案支援的資源。
+37. 作為 API 使用者，我想展開 Collection 查看其中依序排列的 Request，並選擇 Request 開啟工作分頁，以便快速切換與編輯流程中的請求。
+38. 作為 API 使用者，我想在主視窗右上方切換目前 Environment，以便手動發送 Request 與執行 Runner 時使用同一個工作階段環境設定，而不改寫 Request 設定。
+39. 作為 API 使用者，我想在工作分頁中切換 Params、Headers、Body 與 Scripts 編輯區，以便在有限畫面中專注編輯目前需要的 Request 設定。
+40. 作為 API 使用者，我想將 Method 與 URL 保持在 Request 編輯區上方，以便快速辨識及調整請求目的地與類型。
+41. 作為 API 使用者，我想在 Request 編輯區下方查看 Response，並拖曳分隔線調整上下區域高度，以便同時檢查請求內容與回應結果。
+42. 作為 API 使用者，我想切換 Response 的 Body 與 Headers 檢視，以便在格式化／原始本文和回應標頭間快速查看。
+43. 作為 API 使用者，我想由工具列的 Run 開啟 Runner 工作分頁，設定 Collection、Environment 與可選 Dataset，再開始或取消執行，以便沿用相同工作區操作批次流程。
+44. 作為 API 使用者，我想讓同一個 Collection Request 再次開啟時切回既有工作分頁，以便避免重複編輯副本造成內容不一致。
+45. 作為 API 使用者，我想以 Save As 將新 Request 加入既有或新 Collection，並在關閉有未儲存變更的工作分頁時選擇儲存、放棄或取消，以便明確管理請求設定。
+46. 作為 API 使用者，我想只看到本專案已規劃功能的導覽與操作入口，以便介面簡潔且不被不支援功能誤導。
 
 ## Implementation Decisions
 
@@ -62,6 +73,15 @@ Status: ready-for-agent
 - Dataset 的 CSV 使用第一列作為欄名；JSON 使用物件陣列，每個物件代表一列。無 Dataset 時只有一個 Iteration。
 - Project 使用索引 JSON 參照獨立 Collection、Environment JSON；Dataset 保留 CSV/JSON 原檔。優先使用相對路徑，讀取後以 Pydantic 驗證。
 - Runner 透過 `QThread`（或等效的 `QRunnable + QThreadPool`）在背景執行，使用 Qt Signals 回報進度、日誌、結果摘要與完成狀態。不得在 UI 主執行緒執行同步 HTTP 請求。
+- 主視窗採左側資源導覽、上方工作分頁、中央 Request 編輯區與下方 Response 區的分區布局；以使用者提供的 Postman 截圖作為資訊架構參考，不複製品牌、商標或未規劃功能。
+- 導覽側欄僅顯示 Collections、Environments、Datasets。Collection 可展開顯示依序排列的 Request；選取 Request 開啟工作分頁，同一個 Collection Request 重複選取時聚焦既有分頁。
+- Environment 管理入口位於側欄；目前作用中的 Environment 另由主視窗右上方全域選單表示，供手動 Request 與 Runner 共用，不寫回 Request。
+- Request 工作區頂端固定呈現 Method 與 URL；設定分頁依目前功能顯示 Params、Headers、Body，Scripts 分頁在腳本功能交付時加入。未實作的分頁不可用空白或假入口佔位；不建立專用 Authorization 或非需求 Settings 分頁。
+- Response 區位於 Request 編輯區下方，以可調整高度的分隔區呈現，並提供 Body 與 Headers 分頁；初次有 Response 時顯示 Body。
+- Runner 由工具列 Run 開啟工作區分頁，而非新增側欄資源種類。Runner 可設定 Collection 與 Environment；Dataset 選擇器隨 Dataset 功能交付後才出現。開始、取消、進度、日誌與摘要留在 Runner 工作分頁。
+- Request 儲存在 Collection 中並隨 Collection JSON 保存。Save As 可選擇既有或建立 Collection 後加入 Request；關閉含未儲存變更的分頁時提供儲存、放棄、取消選項。
+- Dataset 資源入口及 Runner 的可選 Dataset 設定只在 Dataset 載入功能交付後提供。Environment、Collection、Dataset 等未完成功能不得以不可用的假控制項呈現。
+- 視覺採乾淨淺色桌面 UI，只借用截圖的區域層次，不使用 Postman 品牌、專屬圖示或逐像素仿製。
 - HTTP 4xx/5xx 視為已收到 Response；第一版不提供狀態碼斷言。網路錯誤及各項執行錯誤列入結果，Runner 繼續後續項目；後續 Request 若缺少變數則在送出前失敗。
 - 測試接縫採 `CollectionRunner` 公開執行行為作為主要整合入口，允許注入 HTTPX MockTransport，並透過可觀察結果與 Qt Signals 驗證外部行為。
 
@@ -70,10 +90,12 @@ Status: ready-for-agent
 - 好的測試驗證使用者可觀察的行為與契約，不綁定私有方法、內部資料結構或特定 Widget 實作細節。
 - 主要整合測試經由 CollectionRunner 執行包含多個 Request 的 Collection，注入 HTTPX MockTransport，驗證實際送出的 URL、Headers、Params、Body、請求順序、回應摘要、變數替換、Extractor 鏈與逐項結果。
 - 使用多筆 Dataset 驗證 Iteration 次數、每輪回到 Collection 起點、Runtime variable 重設及資料列優先序；另驗證無 Dataset 時僅執行一輪。
+- 以 pytest-qt 從主視窗的可觀察互動驗證側欄只顯示已規劃資源、Collection Request 開啟與重複聚焦分頁、Environment 全域切換、Request／Response 分頁與分隔區、Runner 工作分頁及未儲存變更提示；不依賴私有 Widget 實作細節。
+- 保持已確認的主要整合接縫：透過 CollectionRunner 公開執行行為並注入 HTTPX MockTransport，驗證批次端到端請求行為；Qt UI 測試只補足使用者可見的布局與操作契約。
 - 以 Qt 測試事件迴圈與 Signals 驗證 Runner 於背景執行、持續發送進度／日誌、完成後產生摘要，且 UI 執行緒仍能處理事件；避免以時間敏感或任意 sleep 的方式判定非阻塞。
 - 覆蓋變數缺漏、JSON Body 無效、HTTP 傳輸失敗、4xx/5xx Response、Before/After Script 例外、Extractor 未匹配與格式錯誤等情境，確認錯誤分類、是否發送及 Runner 是否續行符合規格。
 - JSON 儲存使用暫存目錄測試 Project、Collection、Environment 的往返載入與驗證錯誤；Dataset 測試使用暫存 CSV/JSON 檔案，不發出真實網路請求。
-- 專案目前沒有既有測試檔或相似測試可沿用；測試框架採 pytest，所有 HTTP 行為透過 MockTransport 控制，不依賴外部服務。
+- 專案已有 pytest 與 pytest-qt 的單次 Request UI 測試，可沿用其 MockTransport 與 Qt event loop 慣例；所有 HTTP 行為透過 MockTransport 控制，不依賴外部服務。
 
 ## Out of Scope
 
@@ -83,9 +105,11 @@ Status: ready-for-agent
 - Collection 跨集合請求引用、平行執行及跨 Iteration 保留 Runtime variable。
 - 專用 OAuth 或其他複雜認證流程介面；第一版可使用 Headers 與 Params 設定。
 - 完整的匯入／匯出交換格式相容性及雲端專案管理。
+- 複製 Postman 全產品介面或其 Docs、Specs、Mocks、Toolsets、Flows、協作等未規劃功能；亦不建立專用 Authorization 或無明確需求的 Settings 分頁。
 
 ## Further Notes
 
 - 本規格依專案領域詞彙文件使用 Request、Collection、Environment、Dataset、Data row、Iteration、RunContext、Runtime variable、Extractor、Runner 與 API Engine 等名稱。
 - Python 腳本可執行任意程式碼，是明確的信任邊界，不可用隱藏的 `exec` 限制或一般 Python 執行環境冒充沙箱。
 - 使用者已確認以 CollectionRunner 為主要整合測試接縫，透過 MockTransport 檢驗請求與鏈式執行，並驗證 Qt Signals 和 UI 非阻塞行為。
+- 使用者已確認採用截圖參考布局的建議：左側只列規劃中的資源，上方工作分頁、Request/Response 上下分區、全域 Environment 選單、工具列 Runner 分頁，以及以 Collection 儲存 Request；重複 Request 聚焦既有分頁。

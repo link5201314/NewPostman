@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-progress
+**Status:** completed
 
 - [x] 使用者可設定 HTTP Method、URL、Headers、Params，以及 none、JSON 或 raw Body。
 - [x] 有效的 JSON Body 可送出；JSON 格式錯誤會在發送前顯示錯誤，且不會送出請求。
