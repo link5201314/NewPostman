@@ -195,3 +195,38 @@ def test_missing_environment_variable_prevents_http_request(
     assert signal.args is not None
     assert "missing_host" in signal.args[0]
     assert window.request_editor.error_label.text()
+
+
+def test_environment_substitution_that_breaks_json_prevents_http_request(
+    qtbot: QtBot,
+    tmp_path: Path,
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(200)
+
+    store = ProjectStore(tmp_path / "project.json")
+    store.add_environment(
+        EnvironmentModel(name="Development", variables={"item_name": '"broken'})
+    )
+    window = MainWindow(
+        store=store,
+        client=client_factory(httpx.MockTransport(handler)),
+    )
+    qtbot.addWidget(window)
+    editor = window.request_editor
+    editor.method_input.setCurrentText("POST")
+    editor.url_input.setText("https://api.example.test/items")
+    editor.body_mode_input.setCurrentText("json")
+    editor.body_input.setPlainText('{"item":"{{item_name}}"}')
+
+    with qtbot.waitSignal(editor.request_failed, timeout=3000) as signal:
+        qtbot.mouseClick(editor.send_button, Qt.MouseButton.LeftButton)
+
+    assert request_count == 0
+    assert "JSON" in signal.args[0]
+    assert editor.body_input.toPlainText() == '{"item":"{{item_name}}"}'
