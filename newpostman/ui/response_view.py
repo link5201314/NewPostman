@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QPlainTextEdit,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +41,11 @@ class ResponseView(QWidget):
         self.body_view.setObjectName("responseBody")
         self.body_view.setReadOnly(True)
 
+        self.response_tabs = QTabWidget()
+        self.response_tabs.setObjectName("responseTabs")
+        self.response_tabs.addTab(self.body_view, "Body")
+        self.response_tabs.addTab(self.headers_view, "Headers")
+
         summary = QFormLayout()
         summary.addRow("狀態碼", self.status_label)
         summary.addRow("耗時 (ms)", self.elapsed_label)
@@ -47,8 +53,7 @@ class ResponseView(QWidget):
         response_group = QGroupBox("Response")
         response_layout = QVBoxLayout(response_group)
         response_layout.addLayout(summary)
-        response_layout.addWidget(self.headers_view)
-        response_layout.addWidget(self.body_view, 1)
+        response_layout.addWidget(self.response_tabs, 1)
 
         layout = QVBoxLayout(self)
         layout.addWidget(response_group)
@@ -61,13 +66,21 @@ class ResponseView(QWidget):
         headers: Mapping[str, str],
         body_text: str,
     ) -> None:
-        """呈現 HTTP Response；JSON 本文以可讀格式顯示。"""
+        """呈現 HTTP Response；JSON 本文以可讀格式顯示。
+
+        Args:
+            status_code: HTTP 狀態碼。
+            elapsed_ms: 請求耗時，單位為毫秒。
+            headers: Response Headers。
+            body_text: Response 原始文字本文。
+        """
         self.status_label.setText(str(status_code))
         self.elapsed_label.setText(f"{elapsed_ms:.1f}")
         self.headers_view.setPlainText(
             "\n".join(f"{key}: {value}" for key, value in headers.items())
         )
         self.body_view.setPlainText(self._format_body(body_text))
+        self.response_tabs.setCurrentWidget(self.body_view)
 
     @staticmethod
     def _format_body(body_text: str) -> str:

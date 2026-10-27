@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from uuid import UUID, uuid4
+
 import httpx
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +29,7 @@ class RequestEditor(QWidget):
 
     request_succeeded = Signal(object)
     request_failed = Signal(str)
+    request_changed = Signal()
 
     def __init__(
         self,
@@ -43,7 +47,13 @@ class RequestEditor(QWidget):
         self.setWindowTitle("NewPostman - 單次 Request")
         self._engine = ApiEngine(client=client)
         self._environment: EnvironmentModel | None = None
+        self._collection_id: str | None = None
+        self._saved_request: RequestModel | None = None
+        self._loading_request = False
+        self._request_id: UUID = uuid4()
 
+        self.request_name_input = QLineEdit("Untitled request")
+        self.request_name_input.setObjectName("requestName")
         self.method_input = QComboBox()
         self.method_input.setObjectName("requestMethod")
         self.method_input.addItems(
@@ -86,35 +96,155 @@ class RequestEditor(QWidget):
 
         self.response_view = ResponseView()
 
-        form = QFormLayout()
-        form.addRow("Method", self.method_input)
-        form.addRow("URL", self.url_input)
-        form.addRow("Headers", self.headers_input)
-        form.addRow("Params", self.params_input)
-        form.addRow("Body mode", self.body_mode_input)
-        form.addRow("Body", self.body_input)
+        request_line = QHBoxLayout()
+        request_line.addWidget(self.method_input)
+        request_line.addWidget(self.url_input, 1)
+
+        self.request_tabs = QTabWidget()
+        self.request_tabs.setObjectName("requestTabs")
+        self.request_tabs.addTab(self.params_input, "Params")
+        self.request_tabs.addTab(self.headers_input, "Headers")
+
+        body_page = QWidget()
+        body_layout = QVBoxLayout(body_page)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.addWidget(self.body_mode_input)
+        body_layout.addWidget(self.body_input, 1)
+        self.request_tabs.addTab(body_page, "Body")
 
         send_row = QHBoxLayout()
         send_row.addStretch()
         send_row.addWidget(self.send_button)
 
+        request_panel = QWidget()
+        request_layout = QVBoxLayout(request_panel)
+        request_layout.setContentsMargins(8, 8, 8, 8)
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Request"))
+        name_row.addWidget(self.request_name_input, 1)
+        request_layout.addLayout(name_row)
+        request_layout.addLayout(request_line)
+        request_layout.addWidget(self.request_tabs, 1)
+        request_layout.addWidget(self.error_label)
+        request_layout.addLayout(send_row)
+
+        self.response_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.response_splitter.setObjectName("requestResponseSplitter")
+        self.response_splitter.addWidget(request_panel)
+        self.response_splitter.addWidget(self.response_view)
+        self.response_splitter.setStretchFactor(0, 3)
+        self.response_splitter.setStretchFactor(1, 2)
+        self.response_splitter.setSizes([420, 300])
+
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addLayout(send_row)
-        layout.addWidget(self.error_label)
-        layout.addWidget(self.response_view, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.response_splitter, 1)
+
+        for widget in (
+            self.request_name_input,
+            self.url_input,
+            self.headers_input,
+            self.params_input,
+            self.body_input,
+        ):
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._mark_request_changed)
+            else:
+                widget.textChanged.connect(self._mark_request_changed)
+        self.method_input.currentTextChanged.connect(self._mark_request_changed)
+        self.body_mode_input.currentIndexChanged.connect(self._mark_request_changed)
+
+    @property
+    def is_dirty(self) -> bool:
+        """目前 Request 是否與最後儲存版本不同。"""
+        if self._loading_request:
+            return False
+        try:
+            return self._request_snapshot() != self._saved_request
+        except ValueError:
+            return True
+
+    @property
+    def collection_id(self) -> str | None:
+        """取得此編輯器所屬 Collection 識別碼。"""
+        return self._collection_id
+
+    @property
+    def saved_request(self) -> RequestModel | None:
+        """取得最後載入或儲存的 Request 快照。"""
+        return (
+            self._saved_request.model_copy(deep=True) if self._saved_request else None
+        )
+
+    def set_request(
+        self,
+        request: RequestModel,
+        *,
+        collection_id: str | None = None,
+    ) -> None:
+        """載入 Request 設定並記錄其儲存基準。
+
+        Args:
+            request: 要顯示的 Request 設定。
+            collection_id: Request 所屬 Collection；尚未儲存時為 None。
+        """
+        self._loading_request = True
+        self._request_id = request.id
+        self.request_name_input.setText(request.name)
+        self.method_input.setCurrentText(request.method.upper())
+        self.url_input.setText(request.url)
+        self.headers_input.setPlainText(
+            "\n".join(f"{key}: {value}" for key, value in request.headers.items())
+        )
+        self.params_input.setPlainText(
+            "\n".join(f"{key}={value}" for key, value in request.params.items())
+        )
+        self.body_mode_input.setCurrentIndex(
+            self.body_mode_input.findData(request.body_mode)
+        )
+        self.body_input.setPlainText(request.body)
+        self._collection_id = collection_id
+        self._saved_request = request.model_copy(deep=True)
+        self._loading_request = False
+
+    def mark_saved(self, request: RequestModel, collection_id: str) -> None:
+        """更新 Request 的已儲存基準。
+
+        Args:
+            request: 剛儲存的 Request。
+            collection_id: 儲存該 Request 的 Collection 識別碼。
+        """
+        self._saved_request = request.model_copy(deep=True)
+        self._request_id = request.id
+        self._collection_id = collection_id
+
+    def _mark_request_changed(self, *_args: object) -> None:
+        """表單欄位改變時通知主視窗更新 dirty 狀態。
+
+        Args:
+            *_args: Qt 控制項變更訊號附帶的值。
+        """
+        if not self._loading_request:
+            self.request_changed.emit()
 
     def build_request(self) -> RequestModel:
         """讀取並驗證目前表單內容。"""
         url = self.url_input.text().strip()
         if not url:
             raise ValueError("請輸入 URL。")
+        return self._request_snapshot()
+
+    def _request_snapshot(self) -> RequestModel:
+        """建立目前表單資料快照，不執行發送前的 URL 驗證。"""
+        url = self.url_input.text().strip()
 
         body_mode = self.body_mode_input.currentData()
         if not isinstance(body_mode, BodyMode):
             body_mode = BodyMode(self.body_mode_input.currentText())
 
         return RequestModel(
+            id=self._request_id,
+            name=self.request_name_input.text().strip() or "Untitled request",
             method=self.method_input.currentText(),
             url=url,
             headers=self._parse_headers(self.headers_input.toPlainText()),
@@ -133,6 +263,17 @@ class RequestEditor(QWidget):
 
     @staticmethod
     def _parse_headers(raw_text: str) -> dict[str, str]:
+        """將每行一個 Header 的編輯內容轉為字典。
+
+        Args:
+            raw_text: 使用者編輯的多行 Header 文字。
+
+        Returns:
+            Header 名稱與值的對應字典。
+
+        Raises:
+            ValueError: 任一非空白行不是有效的名稱和值格式。
+        """
         headers: dict[str, str] = {}
         for line_number, line in enumerate(raw_text.splitlines(), start=1):
             if not line.strip():
@@ -147,6 +288,17 @@ class RequestEditor(QWidget):
 
     @staticmethod
     def _parse_params(raw_text: str) -> dict[str, str]:
+        """將每行一個 Param 的編輯內容轉為字典。
+
+        Args:
+            raw_text: 使用者編輯的多行查詢參數文字。
+
+        Returns:
+            Param 名稱與值的對應字典。
+
+        Raises:
+            ValueError: 任一非空白行不是有效的名稱和值格式。
+        """
         params: dict[str, str] = {}
         for line_number, line in enumerate(raw_text.splitlines(), start=1):
             if not line.strip():

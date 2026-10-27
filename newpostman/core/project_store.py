@@ -8,15 +8,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from newpostman.models.collection import CollectionModel
 from newpostman.models.environment import EnvironmentModel
 
 logger = logging.getLogger(__name__)
 
 
 class ProjectIndex(BaseModel):
-    """Project JSON 索引，保存 Environment 相對路徑與作用中識別碼。"""
+    """Project JSON 索引，保存資源相對路徑與 Environment 作用中識別碼。"""
 
     environments: dict[str, str] = Field(default_factory=dict)
+    collections: dict[str, str] = Field(default_factory=dict)
     active_environment_id: UUID | None = None
 
 
@@ -36,7 +38,9 @@ class ProjectStore:
         self.project_path = project_path.resolve()
         self.project_root = self.project_path.parent
         self.environment_directory = self.project_root / "environments"
+        self.collection_directory = self.project_root / "collections"
         self.environment_directory.mkdir(parents=True, exist_ok=True)
+        self.collection_directory.mkdir(parents=True, exist_ok=True)
         self._index = self._load_index()
 
     def list_environments(self) -> list[EnvironmentModel]:
@@ -200,7 +204,128 @@ class ProjectStore:
             return None
         return self.get_environment(environment_id)
 
+    def list_collections(self) -> list[CollectionModel]:
+        """依 Project 索引順序載入所有 Collection。
+
+        Returns:
+            Project 中登錄的 Collection 清單。
+        """
+        return [
+            self.get_collection(UUID(collection_id))
+            for collection_id in self._index.collections
+        ]
+
+    def get_collection(self, collection_id: UUID) -> CollectionModel:
+        """依識別碼載入並驗證 Collection。
+
+        Args:
+            collection_id: Collection 的唯一識別碼。
+
+        Returns:
+            讀取並驗證後的 Collection。
+
+        Raises:
+            ProjectStoreError: 找不到 Collection 或 JSON 無效。
+        """
+        relative_path = self._index.collections.get(str(collection_id))
+        if relative_path is None:
+            raise ProjectStoreError(f"找不到 Collection：{collection_id}")
+        collection_path = self._resolve_collection_path(relative_path)
+        try:
+            with collection_path.open("r", encoding="utf-8") as file:
+                collection = CollectionModel.model_validate_json(file.read())
+            if collection.id != collection_id:
+                raise ProjectStoreError(
+                    f"Collection 檔案識別碼與 Project 索引不符：{collection_path.name}"
+                )
+            return collection
+        except ProjectStoreError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise ProjectStoreError(
+                f"無法載入 Collection {collection_path.name}：{exc}"
+            ) from exc
+
+    def add_collection(self, collection: CollectionModel) -> CollectionModel:
+        """新增 Collection，並於 Project 索引記錄相對路徑。
+
+        Args:
+            collection: 要新增的 Collection。
+
+        Returns:
+            已儲存的 Collection。
+        """
+        collection_id = str(collection.id)
+        if collection_id in self._index.collections:
+            raise ProjectStoreError(f"Collection 識別碼已存在：{collection.id}")
+        collection_path = self.collection_directory / f"{collection.id}.json"
+        relative_path = collection_path.relative_to(self.project_root).as_posix()
+        self._index.collections[collection_id] = relative_path
+        try:
+            self._save_collection(collection)
+            self._save_index()
+        except ProjectStoreError:
+            self._index.collections.pop(collection_id, None)
+            try:
+                collection_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "無法清理新增失敗的 Collection 檔案：%s",
+                    collection_path,
+                    exc_info=True,
+                )
+            raise
+        return collection
+
+    def update_collection(self, collection: CollectionModel) -> CollectionModel:
+        """更新已存在 Collection 的名稱、順序或 Request。
+
+        Args:
+            collection: 含有已登錄識別碼及更新值的 Collection。
+
+        Returns:
+            已儲存的 Collection。
+
+        Raises:
+            ProjectStoreError: 該識別碼尚未登錄於 Project。
+        """
+        if str(collection.id) not in self._index.collections:
+            raise ProjectStoreError(f"找不到 Collection：{collection.id}")
+        self._save_collection(collection)
+        return collection
+
+    def remove_collection(self, collection_id: UUID) -> None:
+        """移除 Project 中的 Collection 及其 JSON 檔案。
+
+        Args:
+            collection_id: 要移除的 Collection 識別碼。
+        """
+        relative_path = self._index.collections.get(str(collection_id))
+        if relative_path is None:
+            return
+        collection_path = self._resolve_collection_path(relative_path)
+        self._index.collections.pop(str(collection_id))
+        try:
+            self._save_index()
+        except ProjectStoreError:
+            self._index.collections[str(collection_id)] = relative_path
+            raise
+        try:
+            collection_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise ProjectStoreError(
+                f"無法移除 Collection 檔案 {collection_path.name}：{exc}"
+            ) from exc
+
     def _load_index(self) -> ProjectIndex:
+        """讀取 Project 索引；不存在時建立空白索引。
+
+        Returns:
+            已驗證的 ProjectIndex。
+
+        Raises:
+            ProjectStoreError: 索引 JSON 無法讀取或驗證。
+        """
         if not self.project_path.exists():
             self._index = ProjectIndex()
             self._save_index()
@@ -222,9 +347,15 @@ class ProjectStore:
             ) from exc
 
     def _save_index(self) -> None:
+        """以原子檔案替換方式保存 Project 索引。"""
         self._write_json(self.project_path, self._index.model_dump(mode="json"))
 
     def _save_environment(self, environment: EnvironmentModel) -> None:
+        """將 Environment 寫入索引所指向的 JSON 檔案。
+
+        Args:
+            environment: 要保存的 Environment。
+        """
         relative_path = self._index.environments[str(environment.id)]
         self._write_json(
             self.project_root / relative_path,
@@ -247,6 +378,35 @@ class ProjectStore:
         if not environment_path.is_relative_to(self.environment_directory.resolve()):
             raise ProjectStoreError("Environment 路徑必須位於 environments 目錄內。")
         return environment_path
+
+    def _resolve_collection_path(self, relative_path: str) -> Path:
+        """解析並限制 Collection 檔案位於 Project collections 目錄內。
+
+        Args:
+            relative_path: Project 索引中的 Collection 相對路徑。
+
+        Returns:
+            經正規化並確認範圍安全的 Collection 檔案路徑。
+
+        Raises:
+            ProjectStoreError: 路徑試圖離開 collections 目錄。
+        """
+        collection_path = (self.project_root / relative_path).resolve()
+        if not collection_path.is_relative_to(self.collection_directory.resolve()):
+            raise ProjectStoreError("Collection 路徑必須位於 collections 目錄內。")
+        return collection_path
+
+    def _save_collection(self, collection: CollectionModel) -> None:
+        """將 Collection 寫入索引所指向的 JSON 檔案。
+
+        Args:
+            collection: 要保存的 Collection。
+        """
+        relative_path = self._index.collections[str(collection.id)]
+        self._write_json(
+            self.project_root / relative_path,
+            collection.model_dump(mode="json"),
+        )
 
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:

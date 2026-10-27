@@ -26,4 +26,14 @@ uv run pytest
 
 ## 目前功能
 
-目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視，以及 Environment 管理與變數替換。支援建立、重新命名、編輯與刪除 Environment；作用環境儲存在本機 Project JSON，並可用 `{{variable_name}}` 替換 Request 的 URL、Headers、Params 與 Body。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，Environment 設定存於同目錄下的 `environments/`。Collection 工作區、Runner、Extractor 與 Dataset 仍在規劃中。
+目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換，以及 Collection 工作區。主視窗包含 Collections／Environments 資源樹、Request 工作分頁、Params／Headers／Body 編輯分頁與 Response Body／Headers 檢視。Collection 和 Environment 分別以 JSON 保存；Request 可從側欄開啟並在 Save As 時加入 Collection。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。Runner、Extractor 與 Dataset 仍在規劃中。
+
+### 使用 Collection
+
+1. 選擇「新增 Collection」建立集合。
+2. 選擇「New Request」建立請求，在 Method、URL 與 Params／Headers／Body 分頁編輯內容。
+3. 選擇「Save As」，輸入既有 Collection 名稱以加入該集合，或輸入新名稱建立集合並加入 Request。
+4. 在左側展開 Collection；點選 Request 可開啟工作分頁。相同 Request 再次選取時會切回已開啟的分頁。
+5. 選取 Collection 中的 Request 後，可用側欄下方的上移／下移按鈕調整執行順序；按「Save」保存已存在 Request 的修改。
+
+Project 索引以相對路徑記錄資源；Collection JSON 存放在 `collections/`，Environment JSON 存放在 `environments/`。關閉有未儲存變更的工作分頁時，可選擇儲存、放棄或取消。

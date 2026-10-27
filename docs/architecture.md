@@ -4,7 +4,7 @@
 
 NewPostman 是以 Python、PySide6 建立的本機桌面 API 測試工具，聚焦於參數化請求、回應萃取與依序批次執行。第一階段涵蓋單次 HTTP 呼叫、Environment、Collection、CSV/JSON Dataset、Before/After Script、回應檢視與 Runner 的核心設計；不包含 Mocks、壓力測試、雲端協作或複雜監控。
 
-本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視，以及 Environment JSON 管理與作用環境變數替換；Collection 工作區、Dataset 與 Runner 等後續功能仍是規劃項目。
+本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換，以及 Collection JSON 管理和 Request 工作區；Runner、Extractor 與 Dataset 等後續功能仍是規劃項目。
 
 Before/After Script 使用 Python 並視為受信任程式碼的決策，詳見 `docs/adr/0001-python-request-scripts.md`。
 
@@ -53,7 +53,7 @@ NewPostman/
     └── test_dataset_loader.py
 ```
 
-目前已實作 Request 與 Environment Models、API Engine、ProjectStore、VariableEngine、單次請求及 Environment 管理 UI；Collection、Dataset、Runner 等模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
+目前已實作 Request、Environment 與 Collection Models、API Engine、ProjectStore、VariableEngine、單次請求、Collection 工作區與 Environment 管理 UI；Dataset、Runner 等模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
 
 ## 模組責任
 
@@ -68,11 +68,12 @@ NewPostman/
 主視窗參考使用者提供的 Postman 截圖安排資訊區域，但不複製其品牌或未規劃功能。採左側資源導覽、上方工作分頁、中央 Request 編輯區及下方 Response 區；上下區以可調整高度的分隔區分開。視覺採乾淨淺色桌面樣式。
 
 - 導覽側欄僅呈現 Collections、Environments、Datasets。Collection 可展開顯示 Request，點選後開啟其工作分頁；再次開啟相同 Collection Request 時聚焦既有分頁。
+- Collection 內 Request 可由側欄上移／下移調整順序，並將新順序保存回 Collection JSON。
 - Environment 的管理入口在側欄；主視窗右上方另設目前作用 Environment 選單，供手動發送與 Runner 共用。選擇 Environment 不會改寫 Request。
 - Request 工作區頂端顯示 Method 與 URL；設定分頁只顯示已實作功能：Params、Headers、Body，Scripts 分頁隨腳本功能交付後加入。未實作功能不得以空白或假入口佔位；不設專用 Authorization 或非需求 Settings 分頁。
 - Response 位於編輯區下方，提供 Body 與 Headers 檢視；收到回應後預設顯示 Body。
 - Runner 由工具列 Run 開啟為工作分頁，不是側欄資源。Runner 選擇 Collection 與 Environment；Dataset 選擇器於 Dataset 功能交付後加入。
-- Request 隨 Collection JSON 儲存。新 Request 使用 Save As 加入既有或新 Collection；關閉有未儲存變更的工作分頁時提供儲存、放棄與取消。
+- Request 隨 Collection JSON 儲存。新 Request 使用 Save As 加入既有或新 Collection；既有 Request 可直接儲存更新。關閉有未儲存變更的工作分頁時提供儲存、放棄與取消。
 - Postman 截圖只作為區域層次的參考，不逐像素仿製，亦不加入 Docs、Specs、Mocks、Toolsets、Flows 等未規劃功能。
 
 此布局決策按垂直切片落實：單次請求先提供 Request/Response 功能；Environment 切片加入 Environment 資源清單、管理入口及全域選單；Collection 工作區切片補上完整主視窗、Collection 導覽與 Request 分頁；Runner 以後續獨立切片加入工作分頁與背景執行；Scripts 與 Dataset 分頁／入口分別隨對應功能加入，避免顯示未完成的控制項。
