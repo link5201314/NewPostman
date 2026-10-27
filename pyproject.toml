@@ -11,7 +11,19 @@ dependencies = [
     "pyside6>=6.12.0",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+newpostman = "newpostman.app:main"
+
+[tool.pytest.ini_options]
+qt_api = "pyside6"
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-qt>=4.5.0",
 ]

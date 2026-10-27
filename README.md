@@ -13,7 +13,17 @@
 
 ```powershell
 uv sync
-uv run main.py
+uv run newpostman
 ```
 
 新增正式依賴：`uv add <套件名稱>`；新增開發依賴：`uv add --dev <套件名稱>`。提交 `pyproject.toml` 與 `uv.lock` 以確保環境可重現。
+
+執行測試：
+
+```powershell
+uv run pytest
+```
+
+## 目前功能
+
+目前已完成第一個垂直切片：單次 HTTP Request 編輯與送出，以及 Response 狀態碼、耗時、Headers 和格式化／原始 Body 檢視。支援常見 HTTP Method、Headers、Query Params、JSON／raw Body；後續 Environment、Collection Runner、Extractor 與 Dataset 功能仍在規劃中。

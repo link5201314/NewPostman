@@ -4,7 +4,7 @@
 
 NewPostman 是以 Python、PySide6 建立的本機桌面 API 測試工具，聚焦於參數化請求、回應萃取與依序批次執行。第一階段涵蓋單次 HTTP 呼叫、Environment、Collection、CSV/JSON Dataset、Before/After Script、回應檢視與 Runner 的核心設計；不包含 Mocks、壓力測試、雲端協作或複雜監控。
 
-本文件先記錄架構與核心原型程式碼，不建立對應 Python 模組，也不實作 UI。
+本文件記錄整體目標架構及模組責任。第一張垂直切片已實作單次 Request、HTTP 傳送與 Response 檢視；Collection、Environment、Dataset 與 Runner 等後續功能仍是規劃項目。
 
 Before/After Script 使用 Python 並視為受信任程式碼的決策，詳見 `docs/adr/0001-python-request-scripts.md`。
 
@@ -53,7 +53,7 @@ NewPostman/
     └── test_dataset_loader.py
 ```
 
-目前 `newpostman/models`、`newpostman/core`、`newpostman/utils` 已有空目錄；此結構是後續實作時的模組規劃。`ui/`、測試及資料目錄則按功能實作時新增。
+目前已實作 `newpostman/models/request.py`、`newpostman/core/api_engine.py` 及單次請求相關 UI 元件；其餘目錄與模組是後續切片的規劃。測試使用 pytest 與 pytest-qt。
 
 ## 模組責任
 
