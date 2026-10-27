@@ -23,4 +23,5 @@
 - 未定義的 `{{key}}` 會在送出前造成該請求失敗，不會以空字串靜默代替。
 - HTTP 回應即使為 4xx/5xx，仍代表傳輸完成；第一版不以狀態碼自動判定測試通過或失敗。
 - 請求、腳本或網路錯誤記錄在該項結果中，Runner 繼續處理後續項目；依賴缺失變數的請求會自行在送出前失敗。
+- 有 Dataset 時每筆有效 Data row 建立新的 RunContext，Runner 從 Collection 第一個 Request 開始完整執行一輪；沒有 Dataset 時執行一輪。取消時不再啟動新 Request。
 - 單次請求核心與 UI 解耦；批次請求由背景執行緒執行，透過 Qt Signals 更新 UI。

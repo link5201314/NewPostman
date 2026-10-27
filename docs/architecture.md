@@ -4,7 +4,7 @@
 
 NewPostman 是以 Python、PySide6 建立的本機桌面 API 測試工具，聚焦於參數化請求、回應萃取與依序批次執行。第一階段涵蓋單次 HTTP 呼叫、Environment、Collection、CSV/JSON Dataset、Before/After Script、回應檢視與 Runner 的核心設計；不包含 Mocks、壓力測試、雲端協作或複雜監控。
 
-本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換、Collection JSON 管理和 Request 工作區、背景 Collection Runner，以及 Python Script 與 Response Extractor 鏈式執行；Dataset 等後續功能仍是規劃項目。
+本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換、Collection JSON 管理和 Request 工作區、背景 Collection Runner、Python Script 與 Response Extractor 鏈式執行，以及 CSV／JSON Dataset 迭代。
 
 Before/After Script 使用 Python 並視為受信任程式碼的決策，詳見 `docs/adr/0001-python-request-scripts.md`。
 
@@ -53,7 +53,7 @@ NewPostman/
     └── test_dataset_loader.py
 ```
 
-目前已實作 Request、Extractor、RunContext、Environment 與 Collection Models、API Engine、ScriptEngine、ResponseExtractor、ProjectStore、VariableEngine、CollectionRunner、單次請求、Collection 工作區、Runner 工作分頁、Scripts 編輯器與 Environment 管理 UI；Dataset 模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
+目前已實作 Request、Extractor、Dataset、RunContext、Environment 與 Collection Models、API Engine、DatasetLoader、ScriptEngine、ResponseExtractor、ProjectStore、VariableEngine、CollectionRunner、單次請求、Collection 工作區、Runner 工作分頁、Scripts 編輯器、Dataset 導覽與 Environment 管理 UI。測試使用 pytest 與 pytest-qt。
 
 ## 模組責任
 
@@ -72,15 +72,15 @@ NewPostman/
 - Environment 的管理入口在側欄；主視窗右上方另設目前作用 Environment 選單，供手動發送與 Runner 共用。選擇 Environment 不會改寫 Request。
 - Request 工作區頂端顯示 Method 與 URL；設定分頁顯示 Params、Headers、Body 與 Scripts。Scripts 分頁提供 Before/After Python Script、Response Extractor 與常駐信任邊界提醒。未實作功能不得以空白或假入口佔位；不設專用 Authorization 或非需求 Settings 分頁。
 - Response 位於編輯區下方，提供 Body 與 Headers 檢視；收到回應後預設顯示 Body。
-- Runner 由工具列 Run 開啟為工作分頁，不是側欄資源。Runner 選擇 Collection 與 Environment；Dataset 選擇器於 Dataset 功能交付後加入。
+- Runner 由工具列 Run 開啟為工作分頁，不是側欄資源。Runner 選擇 Collection、作用 Environment 與可選 Dataset；未選 Dataset 時執行一輪，選取後每筆 Data row 各執行一輪完整 Collection。
 - Request 隨 Collection JSON 儲存。新 Request 使用 Save As 加入既有或新 Collection；既有 Request 可直接儲存更新。關閉有未儲存變更的工作分頁時提供儲存、放棄與取消。
 - Postman 截圖只作為區域層次的參考，不逐像素仿製，亦不加入 Docs、Specs、Mocks、Toolsets、Flows 等未規劃功能。
 
-此布局決策按垂直切片落實：單次請求先提供 Request/Response 功能；Environment 切片加入 Environment 資源清單、管理入口及全域選單；Collection 工作區切片補上完整主視窗、Collection 導覽與 Request 分頁；Runner 以後續獨立切片加入工作分頁與背景執行；Scripts 與 Dataset 分頁／入口分別隨對應功能加入，避免顯示未完成的控制項。
+此布局決策按垂直切片落實：單次請求先提供 Request/Response 功能；Environment 切片加入 Environment 資源清單、管理入口及全域選單；Collection 工作區切片補上完整主視窗、Collection 導覽與 Request 分頁；Runner 以後續獨立切片加入工作分頁與背景執行；Scripts 與 Dataset 入口隨各自功能交付後加入，避免顯示未完成的控制項。
 
 ## JSON 持久化
 
-採用專案索引與獨立檔案：`project.json` 記錄 Collection、Environment 的識別名稱及相對路徑；每個 Collection 與 Environment 各自存成 JSON。Dataset 保留 CSV/JSON 原始檔，專案只記錄路徑及必要設定；相對路徑優先，讓整個專案資料夾可搬移。讀檔後以 Pydantic 驗證，錯誤應指出檔名與欄位，不應靜默丟棄無效內容。
+採用 Project 索引及獨立資源來源：`project.json` 記錄 Collection、Environment 的識別名稱及相對路徑；每個 Collection 與 Environment 各自存成 JSON。Dataset 保留使用者的 CSV／JSON 原始檔，Project 索引僅以相對路徑登錄，不複製或改寫內容。搬移 Project 時需維持 Dataset 相對位置，或重新載入來源。讀取 Dataset 時驗證格式與列資料；錯誤需指出檔案及資料列，不得靜默丟棄無效內容。
 
 ## 變數生命週期與優先序
 
@@ -107,7 +107,7 @@ NewPostman/
 
 ## Runner 與 Qt 執行緒
 
-`ApiEngine` 維持同步、Qt 無關，方便單元測試及單次送出。`CollectionRunner` 在 `QThread` 背景執行，按 Dataset 每列逐輪（Dataset 尚未交付時執行單一集合），Collection 內請求依序呼叫 `ApiEngine`。透過 Qt Signals 回報進度、逐項日誌、Request 結果、完成摘要與取消狀態；禁止在 UI 主執行緒執行同步 HTTP 呼叫。取消會阻止下一個 Request 啟動，並等待目前同步 HTTP 呼叫安全完成。
+`ApiEngine` 維持同步、Qt 無關，方便單元測試及單次送出。`CollectionRunner` 在 `QThread` 背景執行：沒有 Dataset 時使用一筆空 Data row 執行一輪；有 Dataset 時，每列建立新的 RunContext 並從 Collection 第一個 Request 開始，請求依序呼叫 `ApiEngine`。Runtime variable 每輪重設，Data row 優先於 Runtime／Extractor 及 Environment。透過 Qt Signals 回報整體及 Iteration／Request 進度、逐項日誌、Request 結果、完成摘要與取消狀態；禁止在 UI 主執行緒執行同步 HTTP 呼叫。取消會阻止下一個 Request 啟動，並等待目前同步 HTTP 呼叫安全完成。
 
 第一版不平行執行請求，以保證萃取變數可供下一個請求使用。使用者取消時，Runner 應停止排入新請求並安全結束目前工作；取消語意可在 Runner 實作階段再細化。
 

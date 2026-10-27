@@ -1,6 +1,6 @@
 # 核心資料模型與引擎原型
 
-本文件中的程式碼是完整核心方向的設計原型，不代表所有程式碼均已建立或測試。現行實作已包含 RequestModel、BodyMode、Environment、Collection、變數解析、Python Script、Response Extractor 與背景 Runner；Dataset 等仍待後續切片實作。
+本文件中的程式碼是完整核心方向的設計原型，不代表所有程式碼均已建立或測試。現行實作已包含 RequestModel、BodyMode、Environment、Collection、Dataset 載入與迭代、變數解析、Python Script、Response Extractor 與背景 Runner。
 
 ## Pydantic 模型、變數解析與 API 引擎
 
@@ -359,4 +359,4 @@ with ApiEngine() as engine:
 - JSONPath 有多筆結果時取第一筆；萃取失敗不覆寫舊值。
 - HTTP 4xx/5xx 仍會回傳 `transport_succeeded=True`；狀態碼斷言屬後續功能。
 - Before/After scripts 是任意 Python 程式碼，不具沙箱保護。Before script 執行於變數替換後，修改 request 會影響本次發送；修改 runtime variables 不會讓本次已解析欄位重新替換。
-- 上述原型尚未加入 Dataset Loader、Qt Runner、取消機制、檔案儲存與完整驗證測試。
+- 本文件程式碼仍是設計原型；現行模組另已實作 Dataset Loader、Qt Runner、取消機制、Project 檔案索引與對應驗證測試。

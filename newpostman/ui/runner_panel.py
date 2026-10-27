@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -19,6 +20,7 @@ from newpostman.core.collection_runner import (
     RunItemResult,
     RunSummary,
 )
+from newpostman.core.dataset_loader import DatasetLoadError, DatasetLoader
 from newpostman.core.project_store import ProjectStore
 from newpostman.ui.script_warning import warn_about_trusted_scripts
 
@@ -47,6 +49,9 @@ class RunnerPanel(QWidget):
 
         self.collection_selector = QComboBox()
         self.collection_selector.setObjectName("runnerCollection")
+        self.dataset_label = QLabel("Dataset")
+        self.dataset_selector = QComboBox()
+        self.dataset_selector.setObjectName("runnerDataset")
         self.environment_label = QLabel()
         self.environment_label.setObjectName("runnerEnvironment")
 
@@ -71,6 +76,8 @@ class RunnerPanel(QWidget):
         selection_row = QHBoxLayout()
         selection_row.addWidget(QLabel("Collection"))
         selection_row.addWidget(self.collection_selector, 1)
+        selection_row.addWidget(self.dataset_label)
+        selection_row.addWidget(self.dataset_selector, 1)
         selection_row.addWidget(QLabel("Environment"))
         selection_row.addWidget(self.environment_label)
 
@@ -90,9 +97,11 @@ class RunnerPanel(QWidget):
         self.runner.progress.connect(self._update_progress)
         self.runner.log.connect(self.log_view.appendPlainText)
         self.runner.request_completed.connect(self._record_request_result)
+        self.runner.iteration_progress.connect(self._update_iteration_progress)
         self.runner.run_finished.connect(self._show_summary)
 
         self.refresh_collections()
+        self.refresh_datasets()
         self.refresh_environment()
 
     def refresh_collections(self) -> None:
@@ -101,7 +110,10 @@ class RunnerPanel(QWidget):
         self.collection_selector.blockSignals(True)
         self.collection_selector.clear()
         for collection in self.store.list_collections():
-            self.collection_selector.addItem(collection.name, str(collection.id))
+            self.collection_selector.addItem(
+                collection.name,
+                str(collection.id),
+            )
         previous_index = self.collection_selector.findData(previous_id)
         if previous_index >= 0:
             self.collection_selector.setCurrentIndex(previous_index)
@@ -109,6 +121,23 @@ class RunnerPanel(QWidget):
         self.run_button.setEnabled(
             self.collection_selector.count() > 0 and not self.runner.is_running
         )
+
+    def refresh_datasets(self) -> None:
+        """重新載入可選 Dataset，保留目前的選擇。"""
+        previous_id = self.dataset_selector.currentData()
+        self.dataset_selector.blockSignals(True)
+        self.dataset_selector.clear()
+        self.dataset_selector.addItem("（不使用 Dataset）", "")
+        for dataset in self.store.list_datasets():
+            self.dataset_selector.addItem(dataset.name, str(dataset.id))
+        previous_index = self.dataset_selector.findData(previous_id)
+        if previous_index >= 0:
+            self.dataset_selector.setCurrentIndex(previous_index)
+        self.dataset_selector.blockSignals(False)
+
+        has_datasets = bool(self.store.list_datasets())
+        for widget in (self.dataset_label, self.dataset_selector):
+            widget.setVisible(has_datasets)
 
     def refresh_environment(self) -> None:
         """顯示目前作用中的 Environment 名稱。"""
@@ -124,6 +153,15 @@ class RunnerPanel(QWidget):
             return
         collection = self.store.get_collection(UUID(collection_id))
         environment = self.store.active_environment()
+        dataset_rows: list[dict[str, str]] | None = None
+        dataset_id = self.dataset_selector.currentData()
+        if dataset_id:
+            try:
+                dataset = self.store.get_dataset(UUID(dataset_id))
+                dataset_rows = DatasetLoader.load(dataset.path)
+            except (DatasetLoadError, ValueError, OSError) as exc:
+                QMessageBox.warning(self, "無法載入 Dataset", str(exc))
+                return
         if any(
             request.before_script.strip() or request.after_script.strip()
             for request in collection.requests
@@ -135,7 +173,11 @@ class RunnerPanel(QWidget):
         self.progress_bar.setRange(0, len(collection.requests))
         self.progress_bar.setValue(0)
         self.progress_label.setText(f"0/{len(collection.requests)}")
-        if not self.runner.start(collection, environment):
+        if not self.runner.start(
+            collection,
+            environment,
+            dataset_rows=dataset_rows,
+        ):
             self.summary_label.setText("Runner 已在執行中")
             return
         self.run_button.setEnabled(False)
@@ -152,18 +194,36 @@ class RunnerPanel(QWidget):
         response = item.result.response
         if response is not None:
             self.summary_label.setText(
-                f"執行中：{item.index}/{item.total}，HTTP {response.status_code}"
+                f"Iteration {item.iteration_index}/{item.iteration_total}，"
+                f"Request {item.index}/{item.total}，"
+                f"HTTP {response.status_code}"
             )
         else:
             self.summary_label.setText(
-                f"執行中：{item.index}/{item.total}，Request 失敗"
+                f"Iteration {item.iteration_index}/{item.iteration_total}，"
+                f"Request {item.index}/{item.total} 失敗"
             )
+
+    def _update_iteration_progress(
+        self,
+        iteration_index: int,
+        iteration_total: int,
+        request_index: int,
+        request_total: int,
+    ) -> None:
+        """呈現目前 Iteration 與其 Collection Request 進度。"""
+        self.progress_label.setText(
+            f"Iteration {iteration_index}/{iteration_total} · "
+            f"Request {request_index}/{request_total}"
+        )
 
     def _show_summary(self, summary: RunSummary) -> None:
         """呈現 Runner 完成摘要並恢復操作按鈕。"""
         state = "已取消" if summary.cancelled else "完成"
         self.summary_label.setText(
             f"{state}：成功 {summary.succeeded}，失敗 {summary.failed}，"
+            f"完成 {summary.completed_iterations}/"
+            f"{summary.iterations} 個 Iteration，"
             f"共 {summary.total} 個 Request"
         )
         self.run_button.setEnabled(self.collection_selector.count() > 0)

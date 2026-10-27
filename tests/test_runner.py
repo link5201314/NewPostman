@@ -89,7 +89,16 @@ def test_collection_runner_executes_in_order_and_continues_after_errors(
     assert progress == [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)]
     assert any("HTTP 503" in entry for entry in log_entries)
     assert any("Missing variable" in entry and "失敗" in entry for entry in log_entries)
-    assert summary == RunSummary(total=5, succeeded=3, failed=2, cancelled=False)
+    assert summary == RunSummary(
+        total=5,
+        succeeded=3,
+        failed=2,
+        cancelled=False,
+        iterations=1,
+        completed_iterations=1,
+    )
+    assert summary.iterations == 1
+    assert summary.completed_iterations == 1
 
 
 def test_collection_runner_cancellation_stops_before_next_request(
@@ -127,6 +136,8 @@ def test_collection_runner_cancellation_stops_before_next_request(
         succeeded=1,
         failed=0,
         cancelled=True,
+        iterations=1,
+        completed_iterations=0,
     )
 
 
@@ -173,7 +184,7 @@ def test_runner_tab_uses_active_environment_and_keeps_ui_responsive(
         resource_item = window.resource_tree.topLevelItem(index)
         assert resource_item is not None
         resource_names.append(resource_item.text(0))
-    assert resource_names == ["Collections", "Environments"]
+    assert resource_names == ["Collections", "Environments", "Datasets"]
 
     qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)
     qtbot.waitUntil(request_started.is_set, timeout=3000)
@@ -205,6 +216,8 @@ def test_runner_tab_can_select_collection_and_start_empty_collection(
     panel = window.workspace_tabs.currentWidget()
     assert isinstance(panel, RunnerPanel)
     assert panel.collection_selector.count() == 2
+    assert panel.dataset_selector.isHidden()
+    assert panel.dataset_label.isHidden()
     panel.collection_selector.setCurrentIndex(
         panel.collection_selector.findData(str(empty_collection.id))
     )

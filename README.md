@@ -27,7 +27,16 @@ uv run pytest
 
 ## 目前功能
 
-目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換、Collection 工作區、背景 Runner，以及 Python Script 與 Response Extractor 鏈式執行。主視窗包含 Collections／Environments 資源樹、Request 與 Runner 工作分頁、Params／Headers／Body／Scripts 編輯分頁與 Response Body／Headers 檢視。Runner 可按 Collection 順序背景執行請求、回報進度與逐項結果，並可取消後續請求；使用者仍可操作 UI。Collection 和 Environment 分別以 JSON 保存；Request 可從側欄開啟並在 Save As 時加入 Collection。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。
+目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換、Collection 工作區、背景 Runner、Python Script 與 Response Extractor 鏈式執行，以及 CSV／JSON Dataset 迭代。主視窗包含 Collections／Environments／Datasets 資源樹、Request 與 Runner 工作分頁、Params／Headers／Body／腳本編輯分頁與 Response Body／Headers 檢視。Runner 可按 Dataset 資料列從頭依序執行 Collection、回報 Iteration／Request 進度與逐項結果，並可取消後續請求；使用者仍可操作 UI。Collection 和 Environment 以 JSON 保存；Dataset 原始檔保留原位，Project 索引只記錄相對路徑。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。
+
+### 使用 Dataset 迭代 Runner
+
+1. 選擇工具列「載入 Dataset」，載入 CSV 或 JSON 檔；資料集會列在側欄 Datasets 分類，來源檔案不會被複製或改寫。
+2. CSV 第一列為欄名，後續每列是一筆 Data row；JSON 使用物件陣列，每個物件是一筆 Data row。Dataset 必須是 CSV 或 JSON，且來源檔案需保持可讀。
+3. 開啟 Runner、選擇 Collection，並可選擇 Dataset。未選 Dataset 時執行一輪；選取後每筆 Data row 會各自從 Collection 第一個 Request 開始。
+4. 每輪建立新的 RunContext，Runtime variable 不會帶入下一輪。變數依 Data row > Runtime／Extracted > Environment 優先序解析；Extractor 不會覆蓋同名 Data row。
+
+Project 索引以相對路徑記錄 Dataset 來源；搬移 Project 時，請一併保持 Dataset 檔案相對於 Project 的位置，或在新 Project 中重新載入。
 
 ### 使用 Scripts 與 Extractors
 

@@ -4,30 +4,33 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from newpostman.core.dataset_loader import DatasetLoader
 from newpostman.models.collection import CollectionModel
+from newpostman.models.dataset import DatasetModel
 from newpostman.models.environment import EnvironmentModel
 
 logger = logging.getLogger(__name__)
 
 
 class ProjectIndex(BaseModel):
-    """Project JSON 索引，保存資源相對路徑與 Environment 作用中識別碼。"""
+    """Project JSON 索引，保存資源相對路徑及目前作用 Environment。"""
 
     environments: dict[str, str] = Field(default_factory=dict)
     collections: dict[str, str] = Field(default_factory=dict)
+    datasets: dict[str, str] = Field(default_factory=dict)
     active_environment_id: UUID | None = None
 
 
 class ProjectStoreError(ValueError):
-    """Project 或 Environment JSON 讀寫失敗。"""
+    """Project 索引或已登錄資源的讀寫失敗。"""
 
 
 class ProjectStore:
-    """以 project.json 索引及獨立 JSON 檔案管理 Environment。"""
+    """以 project.json 索引管理 Collection、Environment 與 Dataset。"""
 
     def __init__(self, project_path: Path) -> None:
         """開啟或初始化 Project 儲存空間。
@@ -316,6 +319,66 @@ class ProjectStore:
             raise ProjectStoreError(
                 f"無法移除 Collection 檔案 {collection_path.name}：{exc}"
             ) from exc
+
+    def list_datasets(self) -> list[DatasetModel]:
+        """依 Project 索引順序列出已登錄的 Dataset 來源。"""
+        return [
+            self.get_dataset(UUID(dataset_id))
+            for dataset_id in self._index.datasets
+        ]
+
+    def get_dataset(self, dataset_id: UUID) -> DatasetModel:
+        """依識別碼取得 Dataset 來源參照。"""
+        relative_path = self._index.datasets.get(str(dataset_id))
+        if relative_path is None:
+            raise ProjectStoreError(f"找不到 Dataset：{dataset_id}")
+        dataset_path = (self.project_root / relative_path).resolve()
+        return DatasetModel(
+            id=dataset_id,
+            name=dataset_path.stem,
+            path=dataset_path,
+        )
+
+    def add_dataset(self, path: Path) -> DatasetModel:
+        """驗證並登錄 Dataset 檔案參照，不複製或改寫來源檔案。
+
+        Args:
+            path: CSV 或 JSON Dataset 原始檔案路徑。
+
+        Returns:
+            已登錄的 Dataset 來源。
+
+        Raises:
+            ValueError: Dataset 格式無效或路徑無法以相對路徑記錄。
+        """
+        dataset_path = path.expanduser().resolve()
+        DatasetLoader.load(dataset_path)
+        for dataset in self.list_datasets():
+            if dataset.path == dataset_path:
+                return dataset
+        try:
+            relative_path = dataset_path.relative_to(
+                self.project_root,
+                walk_up=True,
+            ).as_posix()
+        except ValueError as exc:
+            raise ProjectStoreError(
+                "Dataset 與 Project 不在相同磁碟，無法以相對路徑記錄。"
+            ) from exc
+        dataset_id = uuid4()
+        while str(dataset_id) in self._index.datasets:
+            dataset_id = uuid4()
+        self._index.datasets[str(dataset_id)] = relative_path
+        try:
+            self._save_index()
+        except ProjectStoreError:
+            self._index.datasets.pop(str(dataset_id), None)
+            raise
+        return DatasetModel(
+            id=dataset_id,
+            name=dataset_path.stem,
+            path=dataset_path,
+        )
 
     def _load_index(self) -> ProjectIndex:
         """讀取 Project 索引；不存在時建立空白索引。

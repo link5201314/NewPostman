@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from newpostman.core.project_store import ProjectStore, ProjectStoreError
 from newpostman.models.collection import CollectionModel
+from newpostman.models.dataset import DatasetModel
 from newpostman.models.request import RequestModel
 from newpostman.ui.environment_manager import EnvironmentManagerDialog
 from newpostman.ui.request_editor import RequestEditor
@@ -36,6 +38,7 @@ class MainWindow(QMainWindow):
     COLLECTION_ROLE = int(Qt.ItemDataRole.UserRole) + 1
     RESOURCE_KIND_ROLE = int(Qt.ItemDataRole.UserRole) + 2
     REQUEST_ROLE = int(Qt.ItemDataRole.UserRole) + 3
+    DATASET_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 
     def __init__(
         self,
@@ -73,6 +76,9 @@ class MainWindow(QMainWindow):
         self.new_request_button = QPushButton("New Request")
         self.new_request_button.setObjectName("newRequest")
         self.new_request_button.clicked.connect(self.new_request)
+        self.load_dataset_button = QPushButton("載入 Dataset")
+        self.load_dataset_button.setObjectName("loadDataset")
+        self.load_dataset_button.clicked.connect(self._prompt_load_dataset)
         self.save_button = QPushButton("Save")
         self.save_button.setObjectName("saveRequest")
         self.save_button.clicked.connect(self.save_current_request)
@@ -91,6 +97,7 @@ class MainWindow(QMainWindow):
         toolbar_layout.addWidget(self.manage_environments_button)
         toolbar_layout.addWidget(self.add_collection_button)
         toolbar_layout.addWidget(self.new_request_button)
+        toolbar_layout.addWidget(self.load_dataset_button)
         toolbar_layout.addStretch()
         toolbar_layout.addWidget(self.run_button)
         toolbar_layout.addWidget(self.save_button)
@@ -185,6 +192,12 @@ class MainWindow(QMainWindow):
         self._refresh_resources()
         return collection
 
+    def load_dataset(self, path: Path) -> DatasetModel:
+        """驗證並登錄 Dataset 檔案，更新資源樹及 Runner 選項。"""
+        dataset = self.store.add_dataset(path)
+        self._refresh_resources()
+        return dataset
+
     def new_request(self) -> RequestEditor:
         """新增一個尚未保存的 Request 工作分頁。
 
@@ -199,6 +212,7 @@ class MainWindow(QMainWindow):
             tab_index = self.workspace_tabs.indexOf(self._runner_panel)
             if tab_index >= 0:
                 self._runner_panel.refresh_collections()
+                self._runner_panel.refresh_datasets()
                 self._runner_panel.refresh_environment()
                 self.workspace_tabs.setCurrentIndex(tab_index)
                 return self._runner_panel
@@ -447,14 +461,32 @@ class MainWindow(QMainWindow):
         if collection_item is not None:
             self.resource_tree.setCurrentItem(collection_item)
 
+    def _prompt_load_dataset(self) -> None:
+        """選取 CSV／JSON 檔案並登錄為 Project Dataset。"""
+        path_text, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "載入 Dataset",
+            str(self.store.project_root),
+            "Dataset (*.csv *.json)",
+        )
+        if not path_text:
+            return
+        try:
+            self.load_dataset(Path(path_text))
+        except (ProjectStoreError, ValueError, OSError) as exc:
+            QMessageBox.warning(self, "無法載入 Dataset", str(exc))
+
     def _refresh_resources(self) -> None:
         self.resource_tree.clear()
         collections_root = QTreeWidgetItem(["Collections"])
         collections_root.setData(0, self.RESOURCE_KIND_ROLE, "collections-root")
         environments_root = QTreeWidgetItem(["Environments"])
         environments_root.setData(0, self.RESOURCE_KIND_ROLE, "environments-root")
+        datasets_root = QTreeWidgetItem(["Datasets"])
+        datasets_root.setData(0, self.RESOURCE_KIND_ROLE, "datasets-root")
         self.resource_tree.addTopLevelItem(collections_root)
         self.resource_tree.addTopLevelItem(environments_root)
+        self.resource_tree.addTopLevelItem(datasets_root)
 
         for collection in self.store.list_collections():
             collection_item = QTreeWidgetItem([collection.name])
@@ -477,9 +509,17 @@ class MainWindow(QMainWindow):
                 environment_item.setToolTip(0, "目前作用中的 Environment")
             environments_root.addChild(environment_item)
 
+        for dataset in self.store.list_datasets():
+            dataset_item = QTreeWidgetItem([dataset.name])
+            dataset_item.setData(0, self.RESOURCE_KIND_ROLE, "dataset")
+            dataset_item.setData(0, self.DATASET_ROLE, str(dataset.id))
+            dataset_item.setToolTip(0, dataset.path.as_posix())
+            datasets_root.addChild(dataset_item)
+
         self.resource_tree.expandAll()
         if self._runner_panel is not None:
             self._runner_panel.refresh_collections()
+            self._runner_panel.refresh_datasets()
 
     def _refresh_environments(self) -> None:
         environments = self.store.list_environments()

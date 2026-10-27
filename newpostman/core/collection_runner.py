@@ -22,6 +22,8 @@ class RunItemResult(BaseModel):
     request_id: UUID
     request_name: str
     result: ApiResult
+    iteration_index: int = 1
+    iteration_total: int = 1
 
 
 class RunSummary(BaseModel):
@@ -31,6 +33,8 @@ class RunSummary(BaseModel):
     succeeded: int
     failed: int
     cancelled: bool
+    iterations: int
+    completed_iterations: int
 
 
 class _RunnerThread(QThread):
@@ -40,21 +44,27 @@ class _RunnerThread(QThread):
         self,
         runner: CollectionRunner,
         collection: CollectionModel,
-        run_context: RunContext,
+        environment: EnvironmentModel | None,
         cancellation_event: Event,
+        run_context: RunContext | None,
+        dataset_rows: list[dict[str, str]] | None,
     ) -> None:
         super().__init__()
         self._runner = runner
         self._collection = collection
+        self._environment = environment
         self._run_context = run_context
+        self._dataset_rows = dataset_rows
         self._cancellation_event = cancellation_event
 
     def run(self) -> None:
         """於背景執行緒執行 Runner 工作。"""
         self._runner._execute(
             self._collection,
-            self._run_context,
             self._cancellation_event,
+            environment=self._environment,
+            run_context=self._run_context,
+            dataset_rows=self._dataset_rows,
         )
 
 
@@ -64,6 +74,7 @@ class CollectionRunner(QObject):
     progress = Signal(int, int)
     log = Signal(str)
     request_completed = Signal(object)
+    iteration_progress = Signal(int, int, int, int)
     run_finished = Signal(object)
 
     def __init__(
@@ -97,6 +108,7 @@ class CollectionRunner(QObject):
         environment: EnvironmentModel | None = None,
         *,
         run_context: RunContext | None = None,
+        dataset_rows: list[dict[str, str]] | None = None,
     ) -> bool:
         """在 QThread 背景啟動 Collection；執行中時不啟動第二次。
 
@@ -104,6 +116,7 @@ class CollectionRunner(QObject):
             collection: 依清單順序執行的 Collection。
             environment: 本次執行使用的作用 Environment。
             run_context: 可提供既有執行變數的上下文；未提供時由 Environment 建立。
+            dataset_rows: Dataset Data row；None 表示沒有 Dataset，空清單表示零次迭代。
 
         Returns:
             成功啟動時回傳 True；已有 Runner 工作時回傳 False。
@@ -112,8 +125,14 @@ class CollectionRunner(QObject):
         if cancellation_event is None:
             return False
 
-        context = run_context or RunContext(environment=environment)
-        thread = _RunnerThread(self, collection, context, cancellation_event)
+        thread = _RunnerThread(
+            self,
+            collection,
+            environment,
+            cancellation_event,
+            run_context,
+            dataset_rows,
+        )
         thread.finished.connect(lambda: self._clear_thread(thread))
         self._thread = thread
         thread.start()
@@ -133,6 +152,7 @@ class CollectionRunner(QObject):
         *,
         cancellation_event: Event | None = None,
         run_context: RunContext | None = None,
+        dataset_rows: list[dict[str, str]] | None = None,
     ) -> RunSummary:
         """同步執行 Collection，供整合測試及非 UI 呼叫端使用。
 
@@ -141,6 +161,7 @@ class CollectionRunner(QObject):
             environment: 本次執行使用的作用 Environment。
             cancellation_event: 可選取消事件；設定後不再啟動下一個 Request。
             run_context: 可選的完整執行上下文，包含執行期及資料列變數。
+            dataset_rows: Dataset Data row；None 表示沒有 Dataset，空清單表示零次迭代。
 
         Returns:
             含成功、失敗及取消狀態的執行摘要。
@@ -151,10 +172,18 @@ class CollectionRunner(QObject):
         event = self._begin_run(cancellation_event or Event())
         if event is None:
             raise RuntimeError("Runner 已在執行中。")
-        context = run_context or RunContext(environment=environment)
-        return self._execute(collection, context, event)
+        return self._execute(
+            collection,
+            event,
+            environment=environment,
+            run_context=run_context,
+            dataset_rows=dataset_rows,
+        )
 
-    def _begin_run(self, cancellation_event: Event | None = None) -> Event | None:
+    def _begin_run(
+        self,
+        cancellation_event: Event | None = None,
+    ) -> Event | None:
         """原子設定執行狀態並建立本次執行的取消事件。"""
         with self._state_lock:
             if self._running:
@@ -167,53 +196,139 @@ class CollectionRunner(QObject):
     def _execute(
         self,
         collection: CollectionModel,
-        run_context: RunContext,
         cancellation_event: Event,
+        *,
+        environment: EnvironmentModel | None = None,
+        run_context: RunContext | None = None,
+        dataset_rows: list[dict[str, str]] | None = None,
     ) -> RunSummary:
+        """逐列建立 RunContext 並依 Collection 順序執行所有 Request。
+
+        Args:
+            collection: 本次要執行的 Collection。
+            cancellation_event: 設定後停止啟動後續 Request。
+            environment: 本次執行使用的作用 Environment。
+            run_context: 無 Dataset 時可重用的完整執行上下文。
+            dataset_rows: 每筆資料列各自建立一輪執行上下文。
+
+        Returns:
+            包含 Request 結果與完成 Iteration 數的摘要。
+        """
         succeeded = 0
         failed = 0
-        total = len(collection.requests)
+        rows: list[dict[str, str] | None] = (
+            [*dataset_rows] if dataset_rows is not None else [None]
+        )
+        iterations = len(rows)
+        request_total = len(collection.requests)
+        total = iterations * request_total
         completed = 0
-        self.log.emit(f"開始執行 Collection：{collection.name}（{total} 個 Request）")
+        completed_iterations = 0
+        selected_environment = (
+            run_context.environment if run_context is not None else environment
+        )
+        self.log.emit(
+            f"開始執行 Collection：{collection.name}（{iterations} 個 Iteration，"
+            f"共 {total} 個 Request）"
+        )
         try:
             with ApiEngine(client=self._client) as engine:
-                for index, request in enumerate(collection.requests, start=1):
+                for iteration_index, data_row in enumerate(rows, start=1):
                     if cancellation_event.is_set():
                         break
-                    self.log.emit(f"執行 {index}/{total}：{request.name}")
-                    result = engine.execute(request, run_context=run_context)
-                    item_result = RunItemResult(
-                        index=index,
-                        total=total,
-                        request_id=request.id,
-                        request_name=request.name,
-                        result=result,
+                    iteration_context = (
+                        RunContext(
+                            environment=selected_environment,
+                            data_row=data_row or {},
+                        )
+                        if dataset_rows is not None
+                        else run_context
+                        or RunContext(environment=selected_environment)
                     )
-                    completed += 1
-                    if result.error is None and result.response is not None:
-                        succeeded += 1
+                    self.log.emit(
+                        f"開始 Iteration {iteration_index}/{iterations}"
+                    )
+                    iteration_completed = 0
+                    for request_index, request in enumerate(
+                        collection.requests,
+                        start=1,
+                    ):
+                        if cancellation_event.is_set():
+                            break
                         self.log.emit(
-                            f"{index}/{total} {request.name}：HTTP "
-                            f"{result.response.status_code}"
+                            f"Iteration {iteration_index}/{iterations}，"
+                            f"Request {request_index}/{request_total}："
+                            f"{request.name}"
                         )
-                    else:
-                        failed += 1
-                        self.log.emit(
-                            f"{index}/{total} {request.name}：失敗－{result.error}"
+                        result = engine.execute(
+                            request,
+                            run_context=iteration_context,
                         )
-                    for warning in result.warnings:
-                        self.log.emit(f"{index}/{total} {request.name}：警告－{warning}")
-                    self.request_completed.emit(item_result)
-                    self.progress.emit(completed, total)
+                        item_result = RunItemResult(
+                            index=request_index,
+                            total=request_total,
+                            request_id=request.id,
+                            request_name=request.name,
+                            result=result,
+                            iteration_index=iteration_index,
+                            iteration_total=iterations,
+                        )
+                        completed += 1
+                        iteration_completed += 1
+                        if (
+                            result.error is None
+                            and result.response is not None
+                        ):
+                            succeeded += 1
+                            self.log.emit(
+                                f"Iteration {iteration_index}/{iterations}，"
+                                f"Request {request_index}/{request_total}："
+                                f"HTTP {result.response.status_code}"
+                            )
+                        else:
+                            failed += 1
+                            self.log.emit(
+                                f"Iteration {iteration_index}/{iterations}，"
+                                f"Request {request_index}/{request_total} "
+                                f"{request.name}："
+                                f"失敗－{result.error}"
+                            )
+                        for warning in result.warnings:
+                            self.log.emit(f"Request 警告－{warning}")
+                        self.request_completed.emit(item_result)
+                        self.progress.emit(completed, total)
+                        self.iteration_progress.emit(
+                            iteration_index,
+                            iterations,
+                            request_index,
+                            request_total,
+                        )
+                    if iteration_completed == request_total:
+                        completed_iterations += 1
+                        if request_total == 0:
+                            self.iteration_progress.emit(
+                                iteration_index,
+                                iterations,
+                                0,
+                                0,
+                            )
+                    if (
+                        cancellation_event.is_set()
+                        and iteration_completed < request_total
+                    ):
+                        break
         finally:
             summary = RunSummary(
                 total=total,
                 succeeded=succeeded,
                 failed=failed,
                 cancelled=cancellation_event.is_set(),
+                iterations=iterations,
+                completed_iterations=completed_iterations,
             )
             self.log.emit(
                 f"執行完成：成功 {succeeded}，失敗 {failed}，"
+                f"完成 {completed_iterations}/{iterations} 個 Iteration，"
                 f"共 {total} 個 Request"
                 f"{'（已取消）' if summary.cancelled else ''}"
             )
