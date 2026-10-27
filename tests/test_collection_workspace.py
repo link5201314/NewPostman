@@ -292,6 +292,23 @@ def test_closing_dirty_request_can_discard_changes(
 
     assert window.isHidden()
 
+def test_closing_dirty_request_defaults_to_discard_in_tests(
+    qtbot: QtBot,
+    tmp_path: Path,
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    window = MainWindow(
+        store=ProjectStore(tmp_path / "project.json"),
+        client=client_factory(httpx.MockTransport(lambda _: httpx.Response(200))),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    window.request_editor.url_input.setText("https://api.example.test/unsaved")
+
+    window.close()
+
+    assert window.isHidden()
+
 
 def test_closing_dirty_tab_can_be_cancelled(
     qtbot: QtBot,
