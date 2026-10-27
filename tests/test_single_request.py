@@ -18,6 +18,7 @@ from newpostman.ui.response_view import ResponseView
 def client_factory() -> Iterator[Callable[[httpx.BaseTransport], httpx.Client]]:
     """建立由 fixture context manager 統一管理生命週期的 HTTP Client。"""
     with ExitStack() as stack:
+
         def create_client(transport: httpx.BaseTransport) -> httpx.Client:
             """建立並註冊一個由 fixture 關閉的 HTTP Client。"""
             return stack.enter_context(httpx.Client(transport=transport))
@@ -151,16 +152,14 @@ def test_http_error_response_is_displayed_not_transport_error(
     client_factory: Callable[[httpx.BaseTransport], httpx.Client],
 ) -> None:
     client = client_factory(
-        httpx.MockTransport(
-            lambda _: httpx.Response(503, text="service unavailable")
-        )
+        httpx.MockTransport(lambda _: httpx.Response(503, text="service unavailable"))
     )
     editor = RequestEditor(client=client)
     qtbot.addWidget(editor)
     editor.url_input.setText("https://api.example.test/unavailable")
 
     with qtbot.waitSignal(editor.request_succeeded, timeout=3000):
-        qtbot.mouseClick(editor.send_button, __import__("PySide6").QtCore.Qt.MouseButton.LeftButton)
+        qtbot.mouseClick(editor.send_button, Qt.MouseButton.LeftButton)
 
     assert "503" in editor.response_view.status_label.text()
     assert editor.response_view.body_view.toPlainText() == "service unavailable"
@@ -173,9 +172,7 @@ def test_transport_error_is_shown_without_crashing(
 ) -> None:
     client = client_factory(
         httpx.MockTransport(
-            lambda _: (_ for _ in ()).throw(
-                httpx.ConnectError("connection refused")
-            )
+            lambda _: (_ for _ in ()).throw(httpx.ConnectError("connection refused"))
         )
     )
     editor = RequestEditor(client=client)

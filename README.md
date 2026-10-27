@@ -26,4 +26,4 @@ uv run pytest
 
 ## 目前功能
 
-目前已完成第一個垂直切片：單次 HTTP Request 編輯與送出，以及 Response 狀態碼、耗時、Headers 和格式化／原始 Body 檢視。支援常見 HTTP Method、Headers、Query Params、JSON／raw Body；後續 Environment、Collection Runner、Extractor 與 Dataset 功能仍在規劃中。
+目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視，以及 Environment 管理與變數替換。支援建立、重新命名、編輯與刪除 Environment；作用環境儲存在本機 Project JSON，並可用 `{{variable_name}}` 替換 Request 的 URL、Headers、Params 與 Body。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，Environment 設定存於同目錄下的 `environments/`。Collection 工作區、Runner、Extractor 與 Dataset 仍在規劃中。

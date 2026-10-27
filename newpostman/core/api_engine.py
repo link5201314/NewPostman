@@ -7,6 +7,8 @@ from typing import Self
 import httpx
 from pydantic import BaseModel, Field
 
+from newpostman.core.variable_engine import MissingVariableError, VariableEngine
+from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import BodyMode, RequestModel
 
 
@@ -56,22 +58,41 @@ class ApiEngine:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def execute(self, request: RequestModel) -> ApiResult:
+    def execute(
+        self,
+        request: RequestModel,
+        environment: EnvironmentModel | None = None,
+    ) -> ApiResult:
         """發送 Request，回傳 Response 摘要或可呈現的錯誤。
 
         Args:
             request: 要發送的 HTTP Request 設定。
+            environment: 用於解析樣板的作用 Environment。
 
         Returns:
             含 Response 摘要或錯誤訊息的執行結果。
         """
         try:
-            content: bytes | None = None
-            headers = dict(request.headers)
+            variables = VariableEngine(environment)
+            resolved = request.model_copy(deep=True)
+            resolved.url = variables.render(resolved.url)
+            resolved.headers = {
+                variables.render(key): variables.render(value)
+                for key, value in resolved.headers.items()
+            }
+            resolved.params = {
+                variables.render(key): variables.render(value)
+                for key, value in resolved.params.items()
+            }
+            if resolved.body_mode is not BodyMode.NONE:
+                resolved.body = variables.render(resolved.body)
 
-            if request.body_mode is BodyMode.JSON:
+            content: bytes | None = None
+            headers = dict(resolved.headers)
+
+            if resolved.body_mode is BodyMode.JSON:
                 try:
-                    json_body = json.loads(request.body)
+                    json_body = json.loads(resolved.body)
                 except json.JSONDecodeError as exc:
                     return ApiResult(error=f"JSON Body 格式錯誤：{exc.msg}")
                 content = json.dumps(
@@ -81,13 +102,13 @@ class ApiEngine:
                 ).encode("utf-8")
                 if not any(key.lower() == "content-type" for key in headers):
                     headers["Content-Type"] = "application/json"
-            elif request.body_mode is BodyMode.RAW:
-                content = request.body.encode("utf-8")
+            elif resolved.body_mode is BodyMode.RAW:
+                content = resolved.body.encode("utf-8")
 
             started_at = time.perf_counter()
-            url = httpx.URL(request.url).copy_merge_params(request.params)
+            url = httpx.URL(resolved.url).copy_merge_params(resolved.params)
             response = self._client.request(
-                method=request.method.upper(),
+                method=resolved.method.upper(),
                 url=url,
                 headers=headers,
                 content=content,
@@ -100,6 +121,8 @@ class ApiEngine:
                 body_text=response.text,
             )
             return ApiResult(response=snapshot)
+        except MissingVariableError as exc:
+            return ApiResult(error=str(exc))
         except httpx.RequestError as exc:
             return ApiResult(error=f"HTTP 傳輸失敗：{exc}")
         except (httpx.InvalidURL, ValueError) as exc:

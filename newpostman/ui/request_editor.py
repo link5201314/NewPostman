@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 import httpx
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QCloseEvent
@@ -11,7 +9,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -19,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from newpostman.core.api_engine import ApiEngine
+from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import BodyMode, RequestModel
 from newpostman.ui.response_view import ResponseView
 
@@ -44,6 +42,7 @@ class RequestEditor(QWidget):
         super().__init__(parent)
         self.setWindowTitle("NewPostman - 單次 Request")
         self._engine = ApiEngine(client=client)
+        self._environment: EnvironmentModel | None = None
 
         self.method_input = QComboBox()
         self.method_input.setObjectName("requestMethod")
@@ -57,7 +56,9 @@ class RequestEditor(QWidget):
 
         self.headers_input = QPlainTextEdit()
         self.headers_input.setObjectName("requestHeaders")
-        self.headers_input.setPlaceholderText("每行一個 Header，例如：\nAccept: application/json")
+        self.headers_input.setPlaceholderText(
+            "每行一個 Header，例如：\nAccept: application/json"
+        )
         self.headers_input.setMaximumHeight(80)
 
         self.params_input = QPlainTextEdit()
@@ -122,6 +123,14 @@ class RequestEditor(QWidget):
             body=self.body_input.toPlainText(),
         )
 
+    def set_environment(self, environment: EnvironmentModel | None) -> None:
+        """設定此編輯器發送請求時使用的 Environment。
+
+        Args:
+            environment: 作用中的 Environment；None 表示沒有可用變數。
+        """
+        self._environment = environment
+
     @staticmethod
     def _parse_headers(raw_text: str) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -130,7 +139,9 @@ class RequestEditor(QWidget):
                 continue
             name, separator, value = line.partition(":")
             if not separator or not name.strip():
-                raise ValueError(f"第 {line_number} 行 Header 格式錯誤，請使用名稱: 值。")
+                raise ValueError(
+                    f"第 {line_number} 行 Header 格式錯誤，請使用名稱: 值。"
+                )
             headers[name.strip()] = value.strip()
         return headers
 
@@ -152,7 +163,7 @@ class RequestEditor(QWidget):
         self.error_label.clear()
         try:
             request = self.build_request()
-            result = self._engine.execute(request)
+            result = self._engine.execute(request, self._environment)
         except (ValueError, httpx.InvalidURL) as exc:
             self._show_error(str(exc))
             return

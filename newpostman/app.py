@@ -4,13 +4,12 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from newpostman.ui.request_editor import RequestEditor
+from newpostman.ui.main_window import MainWindow
 
 
 def main() -> int:
     """啟動 NewPostman 桌面應用程式。"""
     app = QApplication.instance() or QApplication(sys.argv)
-    editor = RequestEditor()
-    editor.resize(820, 760)
-    editor.show()
+    window = MainWindow()
+    window.show()
     return app.exec()
