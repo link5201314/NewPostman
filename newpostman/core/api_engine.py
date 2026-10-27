@@ -7,9 +7,12 @@ from typing import Self
 import httpx
 from pydantic import BaseModel, Field
 
+from newpostman.core.response_extractor import ResponseExtractor
+from newpostman.core.script_engine import ScriptContext, ScriptEngine, ScriptExecutionError
 from newpostman.core.variable_engine import MissingVariableError, VariableEngine
 from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import BodyMode, RequestModel
+from newpostman.models.run_context import RunContext
 
 
 class ResponseSnapshot(BaseModel):
@@ -62,18 +65,28 @@ class ApiEngine:
         self,
         request: RequestModel,
         environment: EnvironmentModel | None = None,
+        *,
+        run_context: RunContext | None = None,
     ) -> ApiResult:
         """發送 Request，回傳 Response 摘要或可呈現的錯誤。
 
         Args:
             request: 要發送的 HTTP Request 設定。
             environment: 用於解析樣板的作用 Environment。
+            run_context: 可選的執行上下文；提供 Runtime variable 與 Data row。
 
         Returns:
             含 Response 摘要或錯誤訊息的執行結果。
         """
+        context = run_context or RunContext(environment=environment)
+        variables = VariableEngine(
+            context.environment,
+            context.runtime_variables,
+            context.data_row,
+        )
+        script_engine = ScriptEngine()
+        extractor = ResponseExtractor()
         try:
-            variables = VariableEngine(environment)
             resolved = request.model_copy(deep=True)
             resolved.url = variables.render(resolved.url)
             resolved.headers = {
@@ -86,6 +99,19 @@ class ApiEngine:
             }
             if resolved.body_mode is not BodyMode.NONE:
                 resolved.body = variables.render(resolved.body)
+
+            script_context = ScriptContext(
+                request=resolved,
+                runtime_variables=context.runtime_variables,
+            )
+            try:
+                script_engine.execute(
+                    resolved.before_script,
+                    script_context,
+                    "Before request",
+                )
+            except ScriptExecutionError as exc:
+                return ApiResult(error=str(exc))
 
             content: bytes | None = None
             headers = dict(resolved.headers)
@@ -120,7 +146,22 @@ class ApiEngine:
                 headers=dict(response.headers),
                 body_text=response.text,
             )
-            return ApiResult(response=snapshot)
+            script_context.response = snapshot
+            script_error: str | None = None
+            try:
+                script_engine.execute(
+                    resolved.after_script,
+                    script_context,
+                    "After request",
+                )
+            except ScriptExecutionError as exc:
+                script_error = str(exc)
+            warnings = extractor.extract(
+                snapshot.body_text,
+                resolved.extractors,
+                context.runtime_variables,
+            )
+            return ApiResult(response=snapshot, error=script_error, warnings=warnings)
         except MissingVariableError as exc:
             return ApiResult(error=str(exc))
         except httpx.RequestError as exc:

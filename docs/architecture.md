@@ -4,7 +4,7 @@
 
 NewPostman 是以 Python、PySide6 建立的本機桌面 API 測試工具，聚焦於參數化請求、回應萃取與依序批次執行。第一階段涵蓋單次 HTTP 呼叫、Environment、Collection、CSV/JSON Dataset、Before/After Script、回應檢視與 Runner 的核心設計；不包含 Mocks、壓力測試、雲端協作或複雜監控。
 
-本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換、Collection JSON 管理和 Request 工作區，以及背景 Collection Runner；Extractor 與 Dataset 等後續功能仍是規劃項目。
+本文件記錄整體目標架構及模組責任。已實作單次 Request、HTTP 傳送與 Response 檢視、Environment JSON 管理與變數替換、Collection JSON 管理和 Request 工作區、背景 Collection Runner，以及 Python Script 與 Response Extractor 鏈式執行；Dataset 等後續功能仍是規劃項目。
 
 Before/After Script 使用 Python 並視為受信任程式碼的決策，詳見 `docs/adr/0001-python-request-scripts.md`。
 
@@ -53,12 +53,12 @@ NewPostman/
     └── test_dataset_loader.py
 ```
 
-目前已實作 Request、Environment 與 Collection Models、API Engine、ProjectStore、VariableEngine、CollectionRunner、單次請求、Collection 工作區、Runner 工作分頁與 Environment 管理 UI；Dataset 與 Extractor 等模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
+目前已實作 Request、Extractor、RunContext、Environment 與 Collection Models、API Engine、ScriptEngine、ResponseExtractor、ProjectStore、VariableEngine、CollectionRunner、單次請求、Collection 工作區、Runner 工作分頁、Scripts 編輯器與 Environment 管理 UI；Dataset 模組仍是後續切片規劃。測試使用 pytest 與 pytest-qt。
 
 ## 模組責任
 
-- **Models**：使用 Pydantic v2 定義 Request、Extractor、Environment、Collection、Project 與執行結果。負責欄位型別、預設值與 JSON 資料驗證，不包含 HTTP 或 UI 行為。
-- **Core / Engine**：`VariableEngine` 統一解析模板；`ApiEngine` 執行單次同步 HTTP 呼叫與萃取；Dataset Loader 載入 CSV/JSON；Collection Runner 管理迭代、順序、結果與進度；Storage 負責 JSON 本機檔案讀寫。
+- **Models**：使用 Pydantic v2 定義 Request、Extractor、RunContext、Environment、Collection、Project 與執行結果。負責欄位型別、預設值與 JSON 資料驗證，不包含 HTTP 或 UI 行為。
+- **Core / Engine**：`VariableEngine` 依 Data row > Runtime/Extracted > Environment 優先序解析樣板；`ScriptEngine` 執行具一般 Python 權限的受信任使用者 Script；`ResponseExtractor` 從 Response Body 依 JSONPath 或 Regex 擷取變數；`ApiEngine` 執行單次同步 HTTP 呼叫；Dataset Loader 載入 CSV/JSON；Collection Runner 管理迭代、順序、結果與進度；Storage 負責 JSON 本機檔案讀寫。
 - **UI components**：PySide6 Widgets 呈現請求編輯、集合、環境、回應與 Runner 狀態。UI 僅呼叫 Core 服務，不自行實作 HTTP 或變數解析。
 - **Utils**：放置跨模組且不具領域狀態的通用工具，如 JSON 格式化與錯誤呈現輔助。
 - **Tests**：以可注入的 HTTPX Client 測試引擎，避免單元測試必須連外網。
@@ -70,7 +70,7 @@ NewPostman/
 - 導覽側欄僅呈現 Collections、Environments、Datasets。Collection 可展開顯示 Request，點選後開啟其工作分頁；再次開啟相同 Collection Request 時聚焦既有分頁。
 - Collection 內 Request 可由側欄上移／下移調整順序，並將新順序保存回 Collection JSON。
 - Environment 的管理入口在側欄；主視窗右上方另設目前作用 Environment 選單，供手動發送與 Runner 共用。選擇 Environment 不會改寫 Request。
-- Request 工作區頂端顯示 Method 與 URL；設定分頁只顯示已實作功能：Params、Headers、Body，Scripts 分頁隨腳本功能交付後加入。未實作功能不得以空白或假入口佔位；不設專用 Authorization 或非需求 Settings 分頁。
+- Request 工作區頂端顯示 Method 與 URL；設定分頁顯示 Params、Headers、Body 與 Scripts。Scripts 分頁提供 Before/After Python Script、Response Extractor 與常駐信任邊界提醒。未實作功能不得以空白或假入口佔位；不設專用 Authorization 或非需求 Settings 分頁。
 - Response 位於編輯區下方，提供 Body 與 Headers 檢視；收到回應後預設顯示 Body。
 - Runner 由工具列 Run 開啟為工作分頁，不是側欄資源。Runner 選擇 Collection 與 Environment；Dataset 選擇器於 Dataset 功能交付後加入。
 - Request 隨 Collection JSON 儲存。新 Request 使用 Save As 加入既有或新 Collection；既有 Request 可直接儲存更新。關閉有未儲存變更的工作分頁時提供儲存、放棄與取消。
@@ -96,14 +96,14 @@ NewPostman/
 ## 單次請求流程
 
 1. 以 RunContext 建立變數解析器，將模板套用至 URL、Headers、Params、Body。
-2. 複製 Request 設定後執行 Before request script；腳本可讀取／修改已解析的 Request 與執行期變數。此時修改變數不會重新套用到本次請求已解析的欄位，會影響後續請求。
+2. 複製 Request 設定後執行 Before request Script；腳本可讀取／修改已解析的 Request 與執行期變數。此時修改變數不會重新套用到本次請求已解析的欄位，會影響後續請求。
 3. 驗證 JSON Body；失敗則在發送前回報錯誤。
 4. 透過 HTTPX 發送請求，記錄耗時、狀態碼、Headers 與本文。收到 4xx/5xx 是傳輸完成，狀態碼不自動等同測試失敗。
-5. 若有 HTTP 回應，執行 After request script。若此腳本錯誤，記錄錯誤但仍嘗試 Extractors。
+5. 若有 HTTP 回應，執行 After request Script。若此腳本錯誤，記錄錯誤但仍嘗試 Extractors。
 6. 依設定順序萃取回應本文：JSONPath 多筆只取第一筆；正則取第一個擷取群組。未匹配或解析失敗時記錄警告，不覆寫既有變數。
 7. 回傳結構化單次執行結果，供 UI 或 Runner 呈現。
 
-腳本使用 Python 並視為受信任程式碼，不具安全沙箱；執行前應向使用者明確告知。Before script 出錯時不送出請求。網路錯誤、模板解析錯誤及腳本錯誤均記錄在單項結果，Runner 繼續後續請求；若後續請求缺少必要變數，該請求在發送前失敗。
+腳本使用 Python 並視為受信任程式碼，可使用一般 Python 能力，包括存取本機檔案；不具安全沙箱。Scripts 分頁常駐顯示警告，單次 Request 及 Runner 開始執行含 Script 的工作前也會顯示提醒。Before Script 出錯時不送出請求。網路錯誤、模板解析錯誤及腳本錯誤均記錄在單項結果，Runner 繼續後續請求；After Script 出錯仍會執行 Extractors。Runtime variable 與 Extractor 值在單次 Collection Runner 執行中共用，供後續 Request 解析。
 
 ## Runner 與 Qt 執行緒
 

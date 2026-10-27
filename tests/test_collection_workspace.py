@@ -164,6 +164,7 @@ def test_request_editor_uses_request_tabs_and_resizable_response_views(
         "Params",
         "Headers",
         "Body",
+        "腳本",
     ]
     assert isinstance(editor.response_splitter, QSplitter)
     assert editor.response_splitter.orientation() is Qt.Orientation.Vertical

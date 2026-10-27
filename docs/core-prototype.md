@@ -1,6 +1,6 @@
 # 核心資料模型與引擎原型
 
-本文件中的程式碼是完整核心方向的設計原型，不代表所有程式碼均已建立或測試。第一張垂直切片已將 RequestModel、BodyMode 與單次 HTTP 傳送實作為 Python 模組；Environment、Collection、變數解析及 Extractor 等仍待後續切片實作。
+本文件中的程式碼是完整核心方向的設計原型，不代表所有程式碼均已建立或測試。現行實作已包含 RequestModel、BodyMode、Environment、Collection、變數解析、Python Script、Response Extractor 與背景 Runner；Dataset 等仍待後續切片實作。
 
 ## Pydantic 模型、變數解析與 API 引擎
 

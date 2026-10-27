@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from newpostman.models.environment import EnvironmentModel
 
@@ -14,13 +15,26 @@ class VariableEngine:
 
     _pattern = re.compile(r"\{\{\s*([\w.-]+)\s*\}\}")
 
-    def __init__(self, environment: EnvironmentModel | None = None) -> None:
+    def __init__(
+        self,
+        environment: EnvironmentModel | None = None,
+        runtime_variables: Mapping[str, str] | None = None,
+        data_row: Mapping[str, str] | None = None,
+    ) -> None:
         """建立變數解析器。
 
         Args:
-            environment: 目前作用 Environment；None 表示沒有任何變數。
+            environment: 目前作用 Environment；None 表示沒有環境變數。
+            runtime_variables: 本次執行期／萃取變數。
+            data_row: 目前 Iteration 的資料列變數。
         """
-        self._variables = environment.variables if environment is not None else {}
+        self._variables: dict[str, str] = {}
+        if environment is not None:
+            self._variables.update(environment.variables)
+        if runtime_variables is not None:
+            self._variables.update(runtime_variables)
+        if data_row is not None:
+            self._variables.update(data_row)
 
     def render(self, text: str) -> str:
         """替換字串中的 Environment 變數。

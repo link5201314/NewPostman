@@ -14,6 +14,22 @@ class BodyMode(StrEnum):
     RAW = "raw"
 
 
+class ExtractorType(StrEnum):
+    """Response Body 萃取規則的類型。"""
+
+    JSONPATH = "jsonpath"
+    REGEX = "regex"
+
+
+class ExtractorModel(BaseModel):
+    """從 Response Body 萃取值並寫入 Runtime variable 的規則。"""
+
+    variable_name: str = Field(min_length=1)
+    kind: ExtractorType
+    expression: str = Field(min_length=1)
+    group_index: int = Field(default=1, ge=0)
+
+
 class RequestModel(BaseModel):
     """單一 HTTP Request 的設定。"""
 
@@ -27,3 +43,6 @@ class RequestModel(BaseModel):
     params: dict[str, str] = Field(default_factory=dict)
     body_mode: BodyMode = BodyMode.NONE
     body: str = ""
+    before_script: str = ""
+    after_script: str = ""
+    extractors: list[ExtractorModel] = Field(default_factory=list)

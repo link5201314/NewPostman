@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -20,7 +22,13 @@ from PySide6.QtWidgets import (
 
 from newpostman.core.api_engine import ApiEngine
 from newpostman.models.environment import EnvironmentModel
-from newpostman.models.request import BodyMode, RequestModel
+from newpostman.models.request import (
+    BodyMode,
+    ExtractorModel,
+    ExtractorType,
+    RequestModel,
+)
+from newpostman.ui.script_warning import warn_about_trusted_scripts
 from newpostman.ui.response_view import ResponseView
 
 
@@ -85,6 +93,35 @@ class RequestEditor(QWidget):
         self.body_input.setObjectName("requestBody")
         self.body_input.setPlaceholderText("Request Body")
 
+        self.before_script_input = QPlainTextEdit()
+        self.before_script_input.setObjectName("beforeRequestScript")
+        self.before_script_input.setPlaceholderText(
+            "可使用 context.request 與 context.runtime_variables"
+        )
+        self.after_script_input = QPlainTextEdit()
+        self.after_script_input.setObjectName("afterRequestScript")
+        self.after_script_input.setPlaceholderText(
+            "可使用 context.response、context.request 與 context.runtime_variables"
+        )
+        self.extractor_table = QTableWidget(0, 4)
+        self.extractor_table.setObjectName("requestExtractors")
+        self.extractor_table.setHorizontalHeaderLabels(
+            ["執行期變數", "類型", "運算式", "捕獲群組"]
+        )
+        self.extractor_table.horizontalHeader().setStretchLastSection(True)
+        self.add_extractor_button = QPushButton("新增 Extractor")
+        self.add_extractor_button.setObjectName("addExtractor")
+        self.add_extractor_button.clicked.connect(self._add_extractor_row)
+        self.remove_extractor_button = QPushButton("刪除 Extractor")
+        self.remove_extractor_button.setObjectName("removeExtractor")
+        self.remove_extractor_button.clicked.connect(self._remove_extractor_row)
+        self.script_trust_notice = QLabel(
+            "安全提醒：Python Script 是受信任程式碼，可執行一般 Python 能力，"
+            "包括存取本機檔案；本程式不提供沙箱隔離。"
+        )
+        self.script_trust_notice.setObjectName("scriptTrustNotice")
+        self.script_trust_notice.setWordWrap(True)
+
         self.send_button = QPushButton("Send")
         self.send_button.setObjectName("sendRequest")
         self.send_button.clicked.connect(self.send_request)
@@ -111,6 +148,22 @@ class RequestEditor(QWidget):
         body_layout.addWidget(self.body_mode_input)
         body_layout.addWidget(self.body_input, 1)
         self.request_tabs.addTab(body_page, "Body")
+
+        scripts_page = QWidget()
+        scripts_layout = QVBoxLayout(scripts_page)
+        scripts_layout.addWidget(QLabel("執行前 Script"))
+        scripts_layout.addWidget(self.before_script_input, 1)
+        scripts_layout.addWidget(QLabel("執行後 Script"))
+        scripts_layout.addWidget(self.after_script_input, 1)
+        scripts_layout.addWidget(QLabel("Response 萃取器"))
+        scripts_layout.addWidget(self.extractor_table, 1)
+        extractor_controls = QHBoxLayout()
+        extractor_controls.addWidget(self.add_extractor_button)
+        extractor_controls.addWidget(self.remove_extractor_button)
+        extractor_controls.addStretch()
+        scripts_layout.addLayout(extractor_controls)
+        scripts_layout.addWidget(self.script_trust_notice)
+        self.request_tabs.addTab(scripts_page, "腳本")
 
         send_row = QHBoxLayout()
         send_row.addStretch()
@@ -153,6 +206,9 @@ class RequestEditor(QWidget):
                 widget.textChanged.connect(self._mark_request_changed)
         self.method_input.currentTextChanged.connect(self._mark_request_changed)
         self.body_mode_input.currentIndexChanged.connect(self._mark_request_changed)
+        self.before_script_input.textChanged.connect(self._mark_request_changed)
+        self.after_script_input.textChanged.connect(self._mark_request_changed)
+        self.extractor_table.cellChanged.connect(self._mark_request_changed)
 
     @property
     def is_dirty(self) -> bool:
@@ -203,6 +259,9 @@ class RequestEditor(QWidget):
             self.body_mode_input.findData(request.body_mode)
         )
         self.body_input.setPlainText(request.body)
+        self.before_script_input.setPlainText(request.before_script)
+        self.after_script_input.setPlainText(request.after_script)
+        self._set_extractors(request.extractors)
         self._collection_id = collection_id
         self._saved_request = request.model_copy(deep=True)
         self._loading_request = False
@@ -251,7 +310,95 @@ class RequestEditor(QWidget):
             params=self._parse_params(self.params_input.toPlainText()),
             body_mode=body_mode,
             body=self.body_input.toPlainText(),
+            before_script=self.before_script_input.toPlainText(),
+            after_script=self.after_script_input.toPlainText(),
+            extractors=self._extractor_snapshot(),
         )
+
+    def _set_extractors(self, extractors: list[ExtractorModel]) -> None:
+        """將 Request Extractors 載入表格。"""
+        self.extractor_table.blockSignals(True)
+        self.extractor_table.setRowCount(0)
+        for extractor in extractors:
+            row = self.extractor_table.rowCount()
+            self.extractor_table.insertRow(row)
+            self.extractor_table.setItem(
+                row, 0, QTableWidgetItem(extractor.variable_name)
+            )
+            kind_selector = self._create_extractor_type_selector(extractor.kind)
+            self.extractor_table.setCellWidget(row, 1, kind_selector)
+            self.extractor_table.setItem(row, 2, QTableWidgetItem(extractor.expression))
+            self.extractor_table.setItem(
+                row, 3, QTableWidgetItem(str(extractor.group_index))
+            )
+        self.extractor_table.blockSignals(False)
+
+    def _extractor_snapshot(self) -> list[ExtractorModel]:
+        """讀取並驗證 Extractor 表格內容。"""
+        extractors: list[ExtractorModel] = []
+        for row in range(self.extractor_table.rowCount()):
+            variable_item = self.extractor_table.item(row, 0)
+            expression_item = self.extractor_table.item(row, 2)
+            group_item = self.extractor_table.item(row, 3)
+            variable_name = variable_item.text().strip() if variable_item else ""
+            expression = expression_item.text() if expression_item else ""
+            if not variable_name and not expression:
+                continue
+            kind_widget = self.extractor_table.cellWidget(row, 1)
+            kind_value = (
+                kind_widget.currentData() if isinstance(kind_widget, QComboBox) else None
+            )
+            if not isinstance(kind_value, str):
+                raise ValueError(f"第 {row + 1} 個 Extractor 類型無效。")
+            try:
+                kind = ExtractorType(kind_value)
+            except ValueError as exc:
+                raise ValueError(f"第 {row + 1} 個 Extractor 類型無效。") from exc
+            try:
+                group_index = int(group_item.text()) if group_item else 1
+            except ValueError as exc:
+                raise ValueError(f"第 {row + 1} 個 Extractor Group 必須是整數。") from exc
+            extractors.append(
+                ExtractorModel(
+                    variable_name=variable_name,
+                    kind=kind,
+                    expression=expression,
+                    group_index=group_index,
+                )
+            )
+        return extractors
+
+    def _create_extractor_type_selector(
+        self,
+        selected_type: ExtractorType | None = None,
+    ) -> QComboBox:
+        """建立 Extractor 類型選單，並在使用者變更時標記 Request。"""
+        selector = QComboBox()
+        for extractor_type in ExtractorType:
+            selector.addItem(extractor_type.value, extractor_type.value)
+        if selected_type is not None:
+            selector.setCurrentIndex(selector.findData(selected_type.value))
+        selector.currentIndexChanged.connect(self._mark_request_changed)
+        return selector
+
+    def _add_extractor_row(self) -> None:
+        """新增一列空白 Extractor 編輯欄位。"""
+        row = self.extractor_table.rowCount()
+        self.extractor_table.insertRow(row)
+        self.extractor_table.setItem(row, 0, QTableWidgetItem(""))
+        kind_selector = self._create_extractor_type_selector()
+        self.extractor_table.setCellWidget(row, 1, kind_selector)
+        self.extractor_table.setItem(row, 2, QTableWidgetItem(""))
+        self.extractor_table.setItem(row, 3, QTableWidgetItem("1"))
+        self.extractor_table.setCurrentCell(row, 0)
+        self._mark_request_changed()
+
+    def _remove_extractor_row(self) -> None:
+        """移除目前選取的 Extractor 編輯列。"""
+        row = self.extractor_table.currentRow()
+        if row >= 0:
+            self.extractor_table.removeRow(row)
+            self._mark_request_changed()
 
     def set_environment(self, environment: EnvironmentModel | None) -> None:
         """設定此編輯器發送請求時使用的 Environment。
@@ -315,6 +462,8 @@ class RequestEditor(QWidget):
         self.error_label.clear()
         try:
             request = self.build_request()
+            if request.before_script.strip() or request.after_script.strip():
+                warn_about_trusted_scripts(self)
             result = self._engine.execute(request, self._environment)
         except (ValueError, httpx.InvalidURL) as exc:
             self._show_error(str(exc))
@@ -322,11 +471,8 @@ class RequestEditor(QWidget):
         finally:
             self.send_button.setEnabled(True)
 
-        if result.error is not None:
-            self._show_error(result.error)
-            return
         if result.response is None:
-            self._show_error("Request 未產生 Response。")
+            self._show_error(result.error or "Request 未產生 Response。")
             return
 
         response = result.response
@@ -336,6 +482,14 @@ class RequestEditor(QWidget):
             headers=response.headers,
             body_text=response.body_text,
         )
+        notices = [*result.warnings]
+        if result.error is not None:
+            notices.insert(0, result.error)
+        if notices:
+            self.error_label.setText("\n".join(notices))
+        if result.error is not None:
+            self.request_failed.emit(result.error)
+            return
         self.request_succeeded.emit(response)
 
     def _show_error(self, message: str) -> None:

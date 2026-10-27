@@ -20,6 +20,7 @@ from newpostman.core.collection_runner import (
     RunSummary,
 )
 from newpostman.core.project_store import ProjectStore
+from newpostman.ui.script_warning import warn_about_trusted_scripts
 
 
 class RunnerPanel(QWidget):
@@ -123,6 +124,11 @@ class RunnerPanel(QWidget):
             return
         collection = self.store.get_collection(UUID(collection_id))
         environment = self.store.active_environment()
+        if any(
+            request.before_script.strip() or request.after_script.strip()
+            for request in collection.requests
+        ):
+            warn_about_trusted_scripts(self)
         self.refresh_environment()
         self.log_view.clear()
         self.summary_label.setText("執行中…")

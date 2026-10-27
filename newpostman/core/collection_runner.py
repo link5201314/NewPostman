@@ -11,6 +11,7 @@ from newpostman.core.api_engine import ApiEngine, ApiResult
 from newpostman.models.collection import CollectionModel
 from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import RequestModel
+from newpostman.models.run_context import RunContext
 
 
 class RunItemResult(BaseModel):
@@ -39,20 +40,20 @@ class _RunnerThread(QThread):
         self,
         runner: CollectionRunner,
         collection: CollectionModel,
-        environment: EnvironmentModel | None,
+        run_context: RunContext,
         cancellation_event: Event,
     ) -> None:
         super().__init__()
         self._runner = runner
         self._collection = collection
-        self._environment = environment
+        self._run_context = run_context
         self._cancellation_event = cancellation_event
 
     def run(self) -> None:
         """於背景執行緒執行 Runner 工作。"""
         self._runner._execute(
             self._collection,
-            self._environment,
+            self._run_context,
             self._cancellation_event,
         )
 
@@ -94,12 +95,15 @@ class CollectionRunner(QObject):
         self,
         collection: CollectionModel,
         environment: EnvironmentModel | None = None,
+        *,
+        run_context: RunContext | None = None,
     ) -> bool:
         """在 QThread 背景啟動 Collection；執行中時不啟動第二次。
 
         Args:
             collection: 依清單順序執行的 Collection。
             environment: 本次執行使用的作用 Environment。
+            run_context: 可提供既有執行變數的上下文；未提供時由 Environment 建立。
 
         Returns:
             成功啟動時回傳 True；已有 Runner 工作時回傳 False。
@@ -108,7 +112,8 @@ class CollectionRunner(QObject):
         if cancellation_event is None:
             return False
 
-        thread = _RunnerThread(self, collection, environment, cancellation_event)
+        context = run_context or RunContext(environment=environment)
+        thread = _RunnerThread(self, collection, context, cancellation_event)
         thread.finished.connect(lambda: self._clear_thread(thread))
         self._thread = thread
         thread.start()
@@ -127,6 +132,7 @@ class CollectionRunner(QObject):
         environment: EnvironmentModel | None = None,
         *,
         cancellation_event: Event | None = None,
+        run_context: RunContext | None = None,
     ) -> RunSummary:
         """同步執行 Collection，供整合測試及非 UI 呼叫端使用。
 
@@ -134,6 +140,7 @@ class CollectionRunner(QObject):
             collection: 依清單順序執行的 Collection。
             environment: 本次執行使用的作用 Environment。
             cancellation_event: 可選取消事件；設定後不再啟動下一個 Request。
+            run_context: 可選的完整執行上下文，包含執行期及資料列變數。
 
         Returns:
             含成功、失敗及取消狀態的執行摘要。
@@ -144,7 +151,8 @@ class CollectionRunner(QObject):
         event = self._begin_run(cancellation_event or Event())
         if event is None:
             raise RuntimeError("Runner 已在執行中。")
-        return self._execute(collection, environment, event)
+        context = run_context or RunContext(environment=environment)
+        return self._execute(collection, context, event)
 
     def _begin_run(self, cancellation_event: Event | None = None) -> Event | None:
         """原子設定執行狀態並建立本次執行的取消事件。"""
@@ -159,7 +167,7 @@ class CollectionRunner(QObject):
     def _execute(
         self,
         collection: CollectionModel,
-        environment: EnvironmentModel | None,
+        run_context: RunContext,
         cancellation_event: Event,
     ) -> RunSummary:
         succeeded = 0
@@ -173,7 +181,7 @@ class CollectionRunner(QObject):
                     if cancellation_event.is_set():
                         break
                     self.log.emit(f"執行 {index}/{total}：{request.name}")
-                    result = engine.execute(request, environment)
+                    result = engine.execute(request, run_context=run_context)
                     item_result = RunItemResult(
                         index=index,
                         total=total,
@@ -193,6 +201,8 @@ class CollectionRunner(QObject):
                         self.log.emit(
                             f"{index}/{total} {request.name}：失敗－{result.error}"
                         )
+                    for warning in result.warnings:
+                        self.log.emit(f"{index}/{total} {request.name}：警告－{warning}")
                     self.request_completed.emit(item_result)
                     self.progress.emit(completed, total)
         finally:

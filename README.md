@@ -26,7 +26,13 @@ uv run pytest
 
 ## 目前功能
 
-目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換、Collection 工作區，以及背景 Runner。主視窗包含 Collections／Environments 資源樹、Request 與 Runner 工作分頁、Params／Headers／Body 編輯分頁與 Response Body／Headers 檢視。Runner 可按 Collection 順序背景執行請求、回報進度與逐項結果，並可取消後續請求；使用者仍可操作 UI。Collection 和 Environment 分別以 JSON 保存；Request 可從側欄開啟並在 Save As 時加入 Collection。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。Extractor 與 Dataset 仍在規劃中。
+目前已完成單次 HTTP Request 編輯與送出、Response 狀態碼／耗時／Headers／Body 檢視、Environment 管理與變數替換、Collection 工作區、背景 Runner，以及 Python Script 與 Response Extractor 鏈式執行。主視窗包含 Collections／Environments 資源樹、Request 與 Runner 工作分頁、Params／Headers／Body／Scripts 編輯分頁與 Response Body／Headers 檢視。Runner 可按 Collection 順序背景執行請求、回報進度與逐項結果，並可取消後續請求；使用者仍可操作 UI。Collection 和 Environment 分別以 JSON 保存；Request 可從側欄開啟並在 Save As 時加入 Collection。預設 Project 索引位於使用者家目錄的 `.newpostman/project.json`，資源 JSON 存於同目錄下的 `collections/` 與 `environments/`。
+
+### 使用 Scripts 與 Extractors
+
+在 Request 的 Scripts 分頁可編輯 Before request 與 After request Python Script，並設定 JSONPath 或 Regex Extractor。Before Script 可透過 `context.request` 修改本次解析後的請求，並以 `context.runtime_variables` 設定後續請求變數；After Script 還可讀取 `context.response`。Extractor 會從 Response Body 萃取值，供同一 Collection 後續 Request 使用 `{{variable_name}}` 引用。變數依 Data row > Runtime/Extracted > Environment 優先序解析。
+
+**安全提醒：Python Script 是受信任程式碼，具備一般 Python 權限，可能讀寫本機檔案或執行其他本機操作。NewPostman 不提供安全沙箱；只執行你信任的 Script。**
 
 ### 使用 Collection
 
