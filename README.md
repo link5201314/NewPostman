@@ -5,6 +5,7 @@
 
 - [架構設計](docs/architecture.md)
 - [核心資料模型與引擎原型](docs/core-prototype.md)
+- [Python Script 使用指南](docs/python-scripts.md)
 - [領域詞彙](CONTEXT.md)
 
 ## uv 開發環境
@@ -30,7 +31,7 @@ uv run pytest
 
 ### 使用 Scripts 與 Extractors
 
-在 Request 的 Scripts 分頁可編輯 Before request 與 After request Python Script，並設定 JSONPath 或 Regex Extractor。Before Script 可透過 `context.request` 修改本次解析後的請求，並以 `context.runtime_variables` 設定後續請求變數；After Script 還可讀取 `context.response`。Extractor 會從 Response Body 萃取值，供同一 Collection 後續 Request 使用 `{{variable_name}}` 引用。變數依 Data row > Runtime/Extracted > Environment 優先序解析。
+在 Request 的「腳本」分頁可編輯執行前／後 Python Script，並設定 JSONPath 或 Regex Extractor。`context.request`、`context.response` 與 `context.runtime_variables` 的欄位、生命週期及範例，請參閱[Python Script 使用指南](docs/python-scripts.md)。Extractor 會從 Response Body 萃取值，供同一 Collection 後續 Request 使用 `{{variable_name}}` 引用。變數依 Data row > Runtime/Extracted > Environment 優先序解析。
 
 **安全提醒：Python Script 是受信任程式碼，具備一般 Python 權限，可能讀寫本機檔案或執行其他本機操作。NewPostman 不提供安全沙箱；只執行你信任的 Script。**
 
