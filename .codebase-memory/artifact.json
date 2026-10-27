@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "a2b11a4497a60c3f1ab37b5450e3e42163e3c26a",
+    "indexed_at": "2026-10-27T07:31:27Z",
+    "project": "NewPostman",
+    "nodes": 311,
+    "edges": 1258,
+    "original_size": 2555904,
+    "compressed_size": 284993,
+    "compression_level": 9
+}
