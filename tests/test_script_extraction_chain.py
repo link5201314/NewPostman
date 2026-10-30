@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from typing import Any
@@ -15,6 +16,7 @@ from newpostman.core.project_store import ProjectStore
 from newpostman.models.collection import CollectionModel
 from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import (
+    BodyMode,
     ExtractorModel,
     ExtractorType,
     RequestModel,
@@ -349,3 +351,58 @@ def test_request_editor_exposes_scripts_and_trust_warning(
     assert "受信任" in warnings[0][1]
     assert "不提供安全沙箱" in warnings[0][1]
     assert sent_headers[0]["x-test"] == "1"
+
+
+def test_jsonpath_object_property_is_available_to_next_request_body(
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    sent_requests: list[httpx.Request] = []
+    record_url = (
+        "https://mvdis-solarwinds.mvdis.gov.tw/ui/maps/viewer/MAPS-123"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent_requests.append(request)
+        if request.url.path == "/entry":
+            return httpx.Response(
+                200,
+                json={"values": {"url": record_url}},
+            )
+        return httpx.Response(200, json={"updated": True})
+
+    collection = CollectionModel(
+        name="Object JSONPath extraction",
+        requests=[
+            RequestModel(
+                name="Get entry",
+                method="GET",
+                url="https://api.example.test/entry",
+                extractors=[
+                    ExtractorModel(
+                        variable_name="record_url",
+                        kind=ExtractorType.JSONPATH,
+                        expression="$.values.url",
+                    )
+                ],
+            ),
+            RequestModel(
+                name="Update entry",
+                method="PUT",
+                url="https://api.example.test/entry/modify",
+                body_mode=BodyMode.JSON,
+                body='{"values":{"url":"{{record_url}}"}}',
+            ),
+        ],
+    )
+    runner = CollectionRunner(
+        client=client_factory(httpx.MockTransport(handler))
+    )
+
+    summary = runner.run(collection)
+
+    assert summary.succeeded == 2
+    assert summary.failed == 0
+    assert len(sent_requests) == 2
+    assert json.loads(sent_requests[1].content) == {
+        "values": {"url": record_url}
+    }

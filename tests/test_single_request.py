@@ -9,7 +9,12 @@ import httpx
 import pytest
 from PySide6.QtCore import Qt
 
-from newpostman.models.request import BodyMode, RequestModel
+from newpostman.models.request import (
+    BodyMode,
+    ExtractorModel,
+    ExtractorType,
+    RequestModel,
+)
 from newpostman.ui.request_editor import RequestEditor
 from newpostman.ui.response_view import ResponseView
 
@@ -184,3 +189,48 @@ def test_transport_error_is_shown_without_crashing(
 
     assert "connection refused" in signal.args[0].lower()
     assert editor.error_label.text()
+
+
+def test_send_with_object_jsonpath_extractor_sends_and_refreshes_response(
+    qtbot: Any,
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    send_count = 0
+    response_body = {
+        "values": {
+            "Display ID": "000000000001",
+            "url": "https://mvdis-solarwinds.mvdis.gov.tw/ui/maps/viewer/MAPS-123",
+        }
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal send_count
+        send_count += 1
+        return httpx.Response(200, json=response_body)
+
+    client = client_factory(httpx.MockTransport(handler))
+    editor = RequestEditor(client=client)
+    qtbot.addWidget(editor)
+    editor.set_request(
+        RequestModel(
+            name="Get entry",
+            method="GET",
+            url="https://api.example.test/entry",
+            extractors=[
+                # The response root is an object containing `values`.
+                ExtractorModel(
+                    variable_name="record_url",
+                    kind=ExtractorType.JSONPATH,
+                    expression="$.values.url",
+                )
+            ],
+        )
+    )
+
+    with qtbot.waitSignal(editor.request_succeeded, timeout=3000):
+        qtbot.mouseClick(editor.send_button, Qt.MouseButton.LeftButton)
+
+    assert send_count == 1
+    assert "200" in editor.response_view.status_label.text()
+    assert json.loads(editor.response_view.body_view.toPlainText()) == response_body
+    assert editor.error_label.text() == ""
