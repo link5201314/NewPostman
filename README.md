@@ -96,6 +96,8 @@ signtool sign /fd sha256 /n IsaacTestApp /tr http://timestamp.digicert.com /td s
 
 將整個 `NewPostman.dist` 資料夾複製到另一台相容的 Windows x64 電腦，再執行其中的 `NewPostman.exe`。不可只複製 exe；同資料夾中的 DLL 與 Qt 支援檔都是執行所需。每次重新打包前可先刪除舊的 `dist/`，避免混入上次產物。
 
+要避免應用程式安全性警告，可透過certmgr.msc前簽署電腦匯出公開憑證，並將匯出的憑證匯入受信任的根憑證授權單位。
+
 
 ### 資料與路徑注意事項
 
