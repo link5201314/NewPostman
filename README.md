@@ -53,3 +53,40 @@ Project 索引以相對路徑記錄 Dataset 來源；搬移 Project 時，請一
 5. 選取 Collection 中的 Request 後，可用側欄下方的上移／下移按鈕調整執行順序；按「Save」保存已存在 Request 的修改。
 
 Project 索引以相對路徑記錄資源；Collection JSON 存放在 `collections/`，Environment JSON 存放在 `environments/`。關閉有未儲存變更的工作分頁時，可選擇儲存、放棄或取消。
+
+## Windows 可攜式打包（Nuitka）
+
+打包會產生 Windows standalone 資料夾，目標電腦不需要安裝 Python 或 uv。請在 Windows x64 的專案根目錄執行；需先安裝 Nuitka 支援的 C 編譯器，建議使用 Visual Studio Build Tools 的「使用 C++ 的桌面開發」工作負載與 Windows SDK。打包使用 `--lto=yes`，因此編譯器／連結器也必須支援 LTO。
+
+```powershell
+uv sync
+uv run python -m nuitka --standalone --enable-plugin=pyside6 --lto=yes --windows-console-mode=disable --output-dir=dist --output-filename=NewPostman.exe newpostman
+```
+
+成功後，輸出結構如下（Nuitka 可能在資料夾內另外產生 Qt 外掛、Python 執行期與相依 DLL）：
+
+```text
+dist/
+└── newpostman.dist/
+	├── NewPostman.exe
+	├── *.dll
+	├── PySide6/
+	└── ...
+```
+
+最後還要簽署應用程式(必須要有安裝Windows SDK)
+```powershell
+signtool sign /fd sha256 /n IsaacTestApp /tr http://timestamp.digicert.com /td sha256 "D:\PythonProjects\NewPostman\dist\newpostman.dist\NewPostman.exe"
+```
+
+將整個 `NewPostman.dist` 資料夾複製到另一台相容的 Windows x64 電腦，再執行其中的 `NewPostman.exe`。不可只複製 exe；同資料夾中的 DLL 與 Qt 支援檔都是執行所需。每次重新打包前可先刪除舊的 `dist/`，避免混入上次產物。
+
+
+### 資料與路徑注意事項
+
+- 應用程式沒有依賴目前工作目錄或程式旁的相對資源路徑；PySide6 外掛由 Nuitka 外掛一併收集。
+- Project 預設儲存在使用者家目錄的 `.newpostman/project.json`（Windows 通常是 `%USERPROFILE%\.newpostman\project.json`），Collection 與 Environment 也保存在該 Project 下。因此打包的程式可搬移，但使用者資料不會自動跟著程式資料夾移動；需要搬移資料時，請另外複製 `.newpostman` 或使用應用程式所指向的 Project。
+- Dataset 原始檔不會複製到 Project；索引以相對 Project 根目錄的路徑保存。搬移 Project 時須維持 Dataset 的相對位置，或在新電腦重新載入 Dataset。
+- 使用者 Python Script 是執行期動態執行；若 Script 匯入打包時未收錄的第三方套件，請將該套件納入建置設定並重新打包。不要假設目標電腦已安裝的 Python 套件可供此程式使用。
+- 此命令不進行程式簽署。完成打包後再依發行流程使用 Windows SDK 的 `signtool` 簽署；未簽署程式可能出現 SmartScreen 或安全軟體警告。
+- 建置需在目標作業系統與架構上進行；Windows 版產物不是 macOS／Linux 執行檔。打包時需網路連線的 API 仍需要目標電腦可連線。
