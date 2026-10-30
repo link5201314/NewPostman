@@ -72,6 +72,8 @@ NewPostman/
 - Environment 的管理入口在側欄；主視窗右上方另設目前作用 Environment 選單，供手動發送與 Runner 共用。選擇 Environment 不會改寫 Request。
 - Request 工作區頂端顯示 Method 與 URL；設定分頁顯示 Params、Headers、Body 與 Scripts。Scripts 分頁提供 Before/After Python Script、Response Extractor 與常駐信任邊界提醒。未實作功能不得以空白或假入口佔位；不設專用 Authorization 或非需求 Settings 分頁。
 - Response 位於編輯區下方，提供 Body 與 Headers 檢視；收到回應後預設顯示 Body。
+- Response 保留上一筆結果時需標示其新舊狀態；新的請求開始或失敗不得讓舊內容看起來像本次回應。
+- 主視窗底部提供共用診斷日誌 Dock，累積應用程式、Script 與 Runner 訊息，並提供手動清除；診斷日誌不取代 Runner 的進度檢視。
 - Runner 由工具列 Run 開啟為工作分頁，不是側欄資源。Runner 選擇 Collection、作用 Environment 與可選 Dataset；未選 Dataset 時執行一輪，選取後每筆 Data row 各執行一輪完整 Collection。
 - Request 隨 Collection JSON 儲存。新 Request 使用 Save As 加入既有或新 Collection；既有 Request 可直接儲存更新。關閉有未儲存變更的工作分頁時提供儲存、放棄與取消。
 - Postman 截圖只作為區域層次的參考，不逐像素仿製，亦不加入 Docs、Specs、Mocks、Toolsets、Flows 等未規劃功能。
@@ -110,6 +112,10 @@ NewPostman/
 `ApiEngine` 維持同步、Qt 無關，方便單元測試及單次送出。`CollectionRunner` 在 `QThread` 背景執行：沒有 Dataset 時使用一筆空 Data row 執行一輪；有 Dataset 時，每列建立新的 RunContext 並從 Collection 第一個 Request 開始，請求依序呼叫 `ApiEngine`。Runtime variable 每輪重設，Data row 優先於 Runtime／Extractor 及 Environment。透過 Qt Signals 回報整體及 Iteration／Request 進度、逐項日誌、Request 結果、完成摘要與取消狀態；禁止在 UI 主執行緒執行同步 HTTP 呼叫。取消會阻止下一個 Request 啟動，並等待目前同步 HTTP 呼叫安全完成。
 
 第一版不平行執行請求，以保證萃取變數可供下一個請求使用。使用者取消時，Runner 應停止排入新請求並安全結束目前工作；取消語意可在 Runner 實作階段再細化。
+
+## 診斷日誌
+
+應用程式以 Python logging 記錄 HTTP 摘要、執行錯誤、Extractor 警告、Runner 活動及 Script 明確呼叫的 `context.log(...)`。`LoggingService` 從使用者設定目錄的 `logging.json` 載入 `file_level` 與 `ui_level`，各自篩選輪替檔案與共用 UI 診斷面板；預設檔案為 DEBUG、UI 為 INFO。檔案上限 5 MiB，保留 3 個備份。UI 訊息透過 Qt Signal 從背景 Runner 執行緒轉送，不直接操作 Widget。一般日誌不得輸出完整 Request／Response 本文，且需遮蔽常見憑證欄位。
 
 ## 未納入第一階段
 

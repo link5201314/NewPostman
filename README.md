@@ -44,6 +44,21 @@ Project 索引以相對路徑記錄 Dataset 來源；搬移 Project 時，請一
 
 **安全提醒：Python Script 是受信任程式碼，具備一般 Python 權限，可能讀寫本機檔案或執行其他本機操作。NewPostman 不提供安全沙箱；只執行你信任的 Script。**
 
+### 診斷日誌
+
+主視窗底部的「診斷日誌」會累積應用程式錯誤、HTTP 摘要、Runner 訊息與 Script 的 `context.log(...)` 輸出；可手動清除 UI 顯示，但不會刪除本地日誌檔。每筆紀錄包含時間、等級與來源。若新 Request 尚未收到回應，Response 區會標示目前顯示的是上一筆結果。
+
+首次啟動會在作業系統使用者設定目錄建立 `logging.json` 與 `newpostman.log`。Windows 預設位置為 `%LOCALAPPDATA%\NewPostman\NewPostman\`。設定檔可分別控制 UI 與檔案的輸出等級，修改後重新啟動生效：
+
+```json
+{
+	"file_level": "DEBUG",
+	"ui_level": "INFO"
+}
+```
+
+支援 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`。日誌檔採輪替保存，每個檔案上限 5 MiB，保留 3 個舊檔。一般日誌會遮蔽常見 Authorization、Cookie、Password、Token 欄位，不會自動記錄完整 Request／Response Body；仍請勿在 `context.log(...)` 明確輸出敏感資料。
+
 ### 使用 Collection
 
 1. 選擇「新增 Collection」建立集合。

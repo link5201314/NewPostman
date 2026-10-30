@@ -24,10 +24,12 @@ from PySide6.QtWidgets import (
 )
 
 from newpostman.core.project_store import ProjectStore, ProjectStoreError
+from newpostman.diagnostics import LoggingService
 from newpostman.models.collection import CollectionModel
 from newpostman.models.dataset import DatasetModel
 from newpostman.models.request import RequestModel
 from newpostman.ui.environment_manager import EnvironmentManagerDialog
+from newpostman.ui.diagnostic_panel import DiagnosticPanel
 from newpostman.ui.request_editor import RequestEditor
 from newpostman.ui.runner_panel import RunnerPanel
 
@@ -46,6 +48,7 @@ class MainWindow(QMainWindow):
         parent: QWidget | None = None,
         *,
         client: httpx.Client | None = None,
+        logging_service: LoggingService | None = None,
     ) -> None:
         """建立主視窗、資源導覽及單一 Request 工作分頁。
 
@@ -53,6 +56,7 @@ class MainWindow(QMainWindow):
             store: Environment 與 Collection 使用的 Project 儲存服務。
             parent: 可選的 Qt 父元件。
             client: 可選的 HTTPX Client，方便測試或共用連線設定。
+                    logging_service: 可選的應用程式日誌服務；提供共用診斷面板。
         """
         super().__init__(parent)
         default_project_path = Path.home() / ".newpostman" / "project.json"
@@ -152,6 +156,13 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(toolbar)
         central_layout.addWidget(splitter, 1)
         self.setCentralWidget(central)
+        self.diagnostic_panel: DiagnosticPanel | None = None
+        if logging_service is not None:
+            self.diagnostic_panel = DiagnosticPanel(logging_service.bridge, self)
+            self.addDockWidget(
+                Qt.DockWidgetArea.BottomDockWidgetArea,
+                self.diagnostic_panel,
+            )
 
         self._refresh_resources()
         self._refresh_environments()

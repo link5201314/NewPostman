@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from newpostman.models.request import RequestModel
 
@@ -16,6 +16,14 @@ class ScriptContext:
     request: RequestModel
     runtime_variables: dict[str, str]
     response: ResponseSnapshot | None = None
+    request_name: str = "Request"
+    script_stage: str = "Script"
+    log_callback: Callable[[str], None] | None = None
+
+    def log(self, message: object) -> None:
+        """將 Script 診斷訊息送至應用程式日誌。"""
+        if self.log_callback is not None:
+            self.log_callback(str(message))
 
 
 class ScriptExecutionError(RuntimeError):

@@ -26,6 +26,9 @@ class ResponseView(QWidget):
         """
         super().__init__(parent)
 
+        self.freshness_label = QLabel("尚無 Response")
+        self.freshness_label.setObjectName("responseFreshness")
+
         self.status_label = QLabel()
         self.status_label.setObjectName("responseStatus")
 
@@ -47,6 +50,7 @@ class ResponseView(QWidget):
         self.response_tabs.addTab(self.headers_view, "Headers")
 
         summary = QFormLayout()
+        summary.addRow("資料狀態", self.freshness_label)
         summary.addRow("狀態碼", self.status_label)
         summary.addRow("耗時 (ms)", self.elapsed_label)
 
@@ -75,12 +79,27 @@ class ResponseView(QWidget):
             body_text: Response 原始文字本文。
         """
         self.status_label.setText(str(status_code))
+        self.freshness_label.setText("本次請求 Response")
         self.elapsed_label.setText(f"{elapsed_ms:.1f}")
         self.headers_view.setPlainText(
             "\n".join(f"{key}: {value}" for key, value in headers.items())
         )
         self.body_view.setPlainText(self._format_body(body_text))
         self.response_tabs.setCurrentWidget(self.body_view)
+
+    def mark_request_started(self) -> None:
+        """保留舊 Response，並明確標示本次請求尚未完成。"""
+        if self.status_label.text():
+            self.freshness_label.setText("本次請求執行中；以下為上一筆 Response")
+        else:
+            self.freshness_label.setText("本次請求執行中，尚未收到 Response")
+
+    def mark_request_failed(self) -> None:
+        """標示本次請求失敗，避免將舊 Response 誤認為新結果。"""
+        if self.status_label.text():
+            self.freshness_label.setText("本次請求未收到新 Response；以下為上一筆 Response")
+        else:
+            self.freshness_label.setText("本次請求未收到 Response")
 
     @staticmethod
     def _format_body(body_text: str) -> str:

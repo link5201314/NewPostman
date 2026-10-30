@@ -13,6 +13,7 @@
 | **Extractor（萃取器）** | 從 HTTP 回應本文依 JSONPath 或正則規則取值，並將結果寫入執行期變數的設定。 |
 | **Runner（執行器）** | 按 Collection 順序及 Dataset 迭代規則執行請求，回報進度與逐項結果的功能。 |
 | **API Engine（API 引擎）** | 執行單次 HTTP 請求、建立回應摘要並套用萃取規則的核心；不負責 UI 呈現。 |
+| **診斷日誌** | 應用程式、Request Script 與 Runner 執行過程的診斷訊息；UI 與本地檔案可分別設定最低記錄等級。 |
 
 ## 變數優先序
 

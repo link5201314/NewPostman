@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID, uuid4
 
 import httpx
@@ -30,6 +31,8 @@ from newpostman.models.request import (
 )
 from newpostman.ui.script_warning import warn_about_trusted_scripts
 from newpostman.ui.response_view import ResponseView
+
+logger = logging.getLogger(__name__)
 
 
 class RequestEditor(QWidget):
@@ -460,6 +463,7 @@ class RequestEditor(QWidget):
         """發送表單中的 Request 並更新視圖及訊號。"""
         self.send_button.setEnabled(False)
         self.error_label.clear()
+        self.response_view.mark_request_started()
         try:
             request = self.build_request()
             if request.before_script.strip() or request.after_script.strip():
@@ -498,7 +502,9 @@ class RequestEditor(QWidget):
         Args:
             message: 要呈現的錯誤訊息。
         """
+        self.response_view.mark_request_failed()
         self.error_label.setText(message)
+        logger.error("Request editor error | %s", message)
         self.request_failed.emit(message)
 
     def closeEvent(self, event: QCloseEvent) -> None:

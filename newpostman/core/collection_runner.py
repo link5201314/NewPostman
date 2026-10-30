@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from threading import Event, Lock
 from uuid import UUID
 
@@ -12,6 +13,8 @@ from newpostman.models.collection import CollectionModel
 from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import RequestModel
 from newpostman.models.run_context import RunContext
+
+logger = logging.getLogger(__name__)
 
 
 class RunItemResult(BaseModel):
@@ -35,6 +38,7 @@ class RunSummary(BaseModel):
     cancelled: bool
     iterations: int
     completed_iterations: int
+    error: str | None = None
 
 
 class _RunnerThread(QThread):
@@ -224,10 +228,11 @@ class CollectionRunner(QObject):
         total = iterations * request_total
         completed = 0
         completed_iterations = 0
+        fatal_error: str | None = None
         selected_environment = (
             run_context.environment if run_context is not None else environment
         )
-        self.log.emit(
+        self._emit_log(
             f"開始執行 Collection：{collection.name}（{iterations} 個 Iteration，"
             f"共 {total} 個 Request）"
         )
@@ -245,7 +250,7 @@ class CollectionRunner(QObject):
                         else run_context
                         or RunContext(environment=selected_environment)
                     )
-                    self.log.emit(
+                    self._emit_log(
                         f"開始 Iteration {iteration_index}/{iterations}"
                     )
                     iteration_completed = 0
@@ -255,7 +260,7 @@ class CollectionRunner(QObject):
                     ):
                         if cancellation_event.is_set():
                             break
-                        self.log.emit(
+                        self._emit_log(
                             f"Iteration {iteration_index}/{iterations}，"
                             f"Request {request_index}/{request_total}："
                             f"{request.name}"
@@ -280,21 +285,25 @@ class CollectionRunner(QObject):
                             and result.response is not None
                         ):
                             succeeded += 1
-                            self.log.emit(
+                            self._emit_log(
                                 f"Iteration {iteration_index}/{iterations}，"
                                 f"Request {request_index}/{request_total}："
                                 f"HTTP {result.response.status_code}"
                             )
                         else:
                             failed += 1
-                            self.log.emit(
+                            self._emit_log(
                                 f"Iteration {iteration_index}/{iterations}，"
                                 f"Request {request_index}/{request_total} "
                                 f"{request.name}："
-                                f"失敗－{result.error}"
+                                f"失敗－{result.error}",
+                                logging.ERROR,
                             )
                         for warning in result.warnings:
-                            self.log.emit(f"Request 警告－{warning}")
+                            self._emit_log(
+                                f"Request 警告－{warning}",
+                                logging.WARNING,
+                            )
                         self.request_completed.emit(item_result)
                         self.progress.emit(completed, total)
                         self.iteration_progress.emit(
@@ -317,6 +326,13 @@ class CollectionRunner(QObject):
                         and iteration_completed < request_total
                     ):
                         break
+        except Exception as exc:
+            fatal_error = str(exc)
+            logger.exception("Collection Runner 發生未預期例外")
+            self._emit_log(
+                f"Runner 發生未預期錯誤：{exc}",
+                logging.ERROR,
+            )
         finally:
             summary = RunSummary(
                 total=total,
@@ -325,8 +341,9 @@ class CollectionRunner(QObject):
                 cancelled=cancellation_event.is_set(),
                 iterations=iterations,
                 completed_iterations=completed_iterations,
+                error=fatal_error,
             )
-            self.log.emit(
+            self._emit_log(
                 f"執行完成：成功 {succeeded}，失敗 {failed}，"
                 f"完成 {completed_iterations}/{iterations} 個 Iteration，"
                 f"共 {total} 個 Request"
@@ -337,6 +354,11 @@ class CollectionRunner(QObject):
                 self._cancellation_event = None
             self.run_finished.emit(summary)
         return summary
+
+    def _emit_log(self, message: str, level: int = logging.INFO) -> None:
+        """同時寫入應用程式日誌與 Runner 工作分頁。"""
+        logger.log(level, message)
+        self.log.emit(message)
 
     def _clear_thread(self, finished_thread: _RunnerThread) -> None:
         """清除已結束的 QThread 參照並排程 Qt 物件釋放。"""

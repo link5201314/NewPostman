@@ -220,11 +220,14 @@ class RunnerPanel(QWidget):
     def _show_summary(self, summary: RunSummary) -> None:
         """呈現 Runner 完成摘要並恢復操作按鈕。"""
         state = "已取消" if summary.cancelled else "完成"
-        self.summary_label.setText(
+        summary_text = (
             f"{state}：成功 {summary.succeeded}，失敗 {summary.failed}，"
             f"完成 {summary.completed_iterations}/"
             f"{summary.iterations} 個 Iteration，"
             f"共 {summary.total} 個 Request"
         )
+        if summary.error is not None:
+            summary_text += f"；Runner 錯誤：{summary.error}"
+        self.summary_label.setText(summary_text)
         self.run_button.setEnabled(self.collection_selector.count() > 0)
         self.cancel_button.setEnabled(False)

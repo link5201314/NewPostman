@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Self
 
@@ -13,6 +14,8 @@ from newpostman.core.variable_engine import MissingVariableError, VariableEngine
 from newpostman.models.environment import EnvironmentModel
 from newpostman.models.request import BodyMode, RequestModel
 from newpostman.models.run_context import RunContext
+
+logger = logging.getLogger(__name__)
 
 
 class ResponseSnapshot(BaseModel):
@@ -103,14 +106,28 @@ class ApiEngine:
             script_context = ScriptContext(
                 request=resolved,
                 runtime_variables=context.runtime_variables,
+                request_name=resolved.name,
             )
+
+            def log_script_message(message: str) -> None:
+                logger.info(
+                    "Script log | Request=%s | stage=%s | %s",
+                    script_context.request_name,
+                    script_context.script_stage,
+                    message,
+                )
+
+            script_context.log_callback = log_script_message
             try:
+                script_context.script_stage = "Before request"
                 script_engine.execute(
                     resolved.before_script,
                     script_context,
                     "Before request",
                 )
             except ScriptExecutionError as exc:
+                logger.error("Before request Script failed | Request=%s", resolved.name)
+                logger.debug("Before request Script exception", exc_info=exc)
                 return ApiResult(error=str(exc))
 
             content: bytes | None = None
@@ -120,6 +137,11 @@ class ApiEngine:
                 try:
                     json_body = json.loads(resolved.body)
                 except json.JSONDecodeError as exc:
+                    logger.error(
+                        "Invalid JSON request body | Request=%s | %s",
+                        resolved.name,
+                        exc.msg,
+                    )
                     return ApiResult(error=f"JSON Body 格式錯誤：{exc.msg}")
                 content = json.dumps(
                     json_body,
@@ -133,6 +155,12 @@ class ApiEngine:
 
             started_at = time.perf_counter()
             url = httpx.URL(resolved.url).copy_merge_params(resolved.params)
+            logger.info(
+                "Sending HTTP request | Request=%s | method=%s | url=%s",
+                resolved.name,
+                resolved.method.upper(),
+                url,
+            )
             response = self._client.request(
                 method=resolved.method.upper(),
                 url=url,
@@ -146,9 +174,16 @@ class ApiEngine:
                 headers=dict(response.headers),
                 body_text=response.text,
             )
+            logger.info(
+                "HTTP response received | Request=%s | status=%s | elapsed_ms=%.1f",
+                resolved.name,
+                snapshot.status_code,
+                elapsed_ms,
+            )
             script_context.response = snapshot
             script_error: str | None = None
             try:
+                script_context.script_stage = "After request"
                 script_engine.execute(
                     resolved.after_script,
                     script_context,
@@ -156,15 +191,22 @@ class ApiEngine:
                 )
             except ScriptExecutionError as exc:
                 script_error = str(exc)
+                logger.error("After request Script failed | Request=%s", resolved.name)
+                logger.debug("After request Script exception", exc_info=exc)
             warnings = extractor.extract(
                 snapshot.body_text,
                 resolved.extractors,
                 context.runtime_variables,
             )
+            for warning in warnings:
+                logger.warning("Response Extractor warning | Request=%s | %s", resolved.name, warning)
             return ApiResult(response=snapshot, error=script_error, warnings=warnings)
         except MissingVariableError as exc:
+            logger.error("Request variable resolution failed | %s", exc)
             return ApiResult(error=str(exc))
         except httpx.RequestError as exc:
+            logger.exception("HTTP transport failed")
             return ApiResult(error=f"HTTP 傳輸失敗：{exc}")
         except (httpx.InvalidURL, ValueError) as exc:
+            logger.exception("Invalid request configuration")
             return ApiResult(error=f"Request 設定錯誤：{exc}")
