@@ -19,10 +19,17 @@ uv run newpostman
 
 新增正式依賴：`uv add <套件名稱>`；新增開發依賴：`uv add --dev <套件名稱>`。提交 `pyproject.toml` 與 `uv.lock` 以確保環境可重現。
 
-執行測試：
+執行全部測試：
 
 ```powershell
 uv run pytest
+```
+
+也可以只執行指定測試檔或單一測試：
+
+```powershell
+uv run pytest tests/test_runner.py
+uv run pytest tests/test_runner.py::test_runner_tab_can_select_collection_and_start_empty_collection
 ```
 
 ## 目前功能
