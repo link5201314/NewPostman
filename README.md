@@ -47,7 +47,7 @@ Project 索引以相對路徑記錄 Dataset 來源；搬移 Project 時，請一
 
 ### 使用 Scripts 與 Extractors
 
-在 Request 的「腳本」分頁可編輯執行前／後 Python Script，並設定 JSONPath 或 Regex Extractor。`context.request`、`context.response` 與 `context.runtime_variables` 的欄位、生命週期及範例，請參閱[Python Script 使用指南](docs/python-scripts.md)。Extractor 會從 Response Body 萃取值，供同一 Collection 後續 Request 使用 `{{variable_name}}` 引用。變數依 Data row > Runtime/Extracted > Environment 優先序解析。
+在 Request 的「腳本」分頁可編輯執行前／後 Python Script，並設定 JSONPath 或 Regex Extractor。Before Script 先於該 Request 的 URL、Headers、Params 與 Body 變數解析執行，因此可設定變數供同一 Request 使用；未定義變數仍會在送出前報錯。`context.request`、`context.response` 與 `context.runtime_variables` 的欄位、生命週期及範例，請參閱[Python Script 使用指南](docs/python-scripts.md)。Extractor 會從 Response Body 萃取值，供同一 Collection 後續 Request 使用 `{{variable_name}}` 引用。變數依 Data row > Runtime/Extracted > Environment 優先序解析。
 
 **安全提醒：Python Script 是受信任程式碼，具備一般 Python 權限，可能讀寫本機檔案或執行其他本機操作。NewPostman 不提供安全沙箱；只執行你信任的 Script。**
 
@@ -82,8 +82,10 @@ Project 索引以相對路徑記錄資源；Collection JSON 存放在 `collectio
 
 ```powershell
 uv sync
-uv run python -m nuitka --standalone --enable-plugin=pyside6 --lto=yes --windows-console-mode=disable --output-dir=dist --output-filename=NewPostman.exe newpostman
+uv run python -m nuitka --standalone --enable-plugin=pyside6 --include-package=jsonpath_ng._ply_tables --lto=yes --windows-console-mode=disable --output-dir=dist --output-filename=NewPostman.exe newpostman
 ```
+
+`jsonpath-ng` 會以動態載入方式使用預先產生的 PLY parser table；`--include-package=jsonpath_ng._ply_tables` 可確保 Nuitka 將這些模組一併打包，避免執行 JSONPath Extractor 時出現 `No module named 'jsonpath_ng._ply_tables'`。
 
 成功後，輸出結構如下（Nuitka 可能在資料夾內另外產生 Qt 外掛、Python 執行期與相依 DLL）：
 

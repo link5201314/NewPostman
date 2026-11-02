@@ -6,7 +6,7 @@
 
 | 介面 | 型別 | 說明 |
 |---|---|---|
-| `context.request` | `RequestModel` | 本次已完成變數替換的 Request 副本。執行前 Script 可讀取或修改它；修改不會寫回已保存的 Request。 |
+| `context.request` | `RequestModel` | 本次 Request 的副本。執行前 Script 執行時欄位仍保留 `{{...}}` 樣板；Script 可讀取或修改它，修改不會寫回已保存的 Request。 |
 | `context.response` | `ResponseSnapshot \| None` | 執行後 Script 可讀取的 HTTP Response 摘要。執行前 Script 時為 `None`。 |
 | `context.runtime_variables` | `dict[str, str]` | 本次執行的 Runtime variable 字典，可讀取、設定或刪除變數。值應使用字串。 |
 | `context.log(message)` | 方法 | 將自訂診斷文字以 INFO 等級送至 UI 診斷區與本地日誌；訊息會標示 Request 名稱與 Script 階段。 |
@@ -20,22 +20,32 @@
 | `id` | `UUID` | Request 識別碼 |
 | `name` | `str` | Request 名稱 |
 | `method` | `str` | HTTP Method |
-| `url` | `str` | 本次解析後的 URL |
-| `headers` | `dict[str, str]` | Request Headers |
-| `params` | `dict[str, str]` | URL 查詢參數 |
+| `url` | `str` | Request URL；Before Script 執行時可能仍含 `{{...}}` 樣板 |
+| `headers` | `dict[str, str]` | Request Headers；Before Script 執行時可能仍含 `{{...}}` 樣板 |
+| `params` | `dict[str, str]` | URL 查詢參數；Before Script 執行時可能仍含 `{{...}}` 樣板 |
 | `body_mode` | `BodyMode` | Body 模式：`none`、`json` 或 `raw` |
-| `body` | `str` | Request Body |
+| `body` | `str` | Request Body；Before Script 執行時可能仍含 `{{...}}` 樣板 |
 | `before_script` | `str` | 保存的執行前 Script 文字 |
 | `after_script` | `str` | 保存的執行後 Script 文字 |
 | `extractors` | `list[ExtractorModel]` | Request 的 Response Extractor 設定 |
 
-執行前 Script 在 URL、Headers、Params、Body 的變數替換後執行。修改 `context.request` 會影響本次發送；修改 `context.runtime_variables` 不會重新解析本次已替換的欄位，但可供後續 Request 使用。JSON Body 會在執行前 Script 後驗證。
+Before request Script 會先於 URL、Headers、Params、Body 的變數替換執行。Script 可先設定 `context.runtime_variables`，讓新值用於**本次 Request**；也可直接修改 `context.request`，這些修改會在 Script 結束後一併進行變數替換並影響本次發送。Script 執行時 `context.request` 的欄位仍保留原始樣板。變數依 Data row > Runtime／Extracted > Environment 優先序解析，因此 Runtime variable 不會覆蓋同名 Data row。Script 後仍未定義的變數會使 Request 在送出前失敗；JSON Body 則在插值後、送出前驗證。
 
 ```python
 context.request.headers["X-Trace"] = "from-script"
 context.request.params["source"] = "runner"
 context.runtime_variables["request_id"] = "req-123"
 context.log("已準備送出 Request")
+```
+
+例如，Body 可使用 Before Script 才建立的變數：
+
+```python
+context.runtime_variables["updated_url"] = "https://api.example.test/resource"
+```
+
+```json
+{"url": "{{updated_url}}"}
 ```
 
 ### `context.response` 欄位
@@ -59,10 +69,10 @@ if context.response is not None:
 
 ## Runtime variable 的生命週期
 
-- 在 Collection Runner 的一次執行中，各 Request 共用同一份 `context.runtime_variables`。執行前／後 Script 與成功的 Extractor 都可更新它，後續 Request 可透過 `{{variable_name}}` 讀取。
+- 在 Collection Runner 的一次執行中，各 Request 共用同一份 `context.runtime_variables`。Before Script 設定的變數可供本次 Request 插值使用；執行前／後 Script 與成功的 Extractor 也可更新它，後續 Request 可透過 `{{variable_name}}` 讀取。
 - 變數解析優先序為 **Data row > Runtime／Extracted > Environment**；有同名 Runtime variable 時，它會優先於 Environment。
 - 單次手動 Send 會建立該次呼叫自己的執行上下文；其中寫入的 Runtime variable 不會跨不同 Send 保存。若要串接多個 Request，請使用 Runner 執行 Collection。
-- Request 設定在替換前會複製；Script 對 `context.request` 的修改只作用於這次呼叫，不會自動保存回 Collection。
+- Request 設定會先複製；Script 對 `context.request` 的修改只作用於這次呼叫，不會自動保存回 Collection。Before Script 執行後才解析複本中的變數樣板。
 
 ## 錯誤處理
 

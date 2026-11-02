@@ -45,7 +45,7 @@ def test_runner_chains_scripts_and_extractors_with_runtime_precedence(
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(request)
-        if request.url.path == "/base/edited":
+        if request.url.path == "/runtime-path/edited":
             return httpx.Response(
                 200,
                 json={"tokens": ["first-token", "second-token"]},
@@ -113,7 +113,7 @@ def test_runner_chains_scripts_and_extractors_with_runtime_precedence(
     summary = runner.run(collection, environment)
 
     assert [str(request.url) for request in sent] == [
-        "https://api.example.test/base/edited",
+        "https://api.example.test/runtime-path/edited",
         "https://api.example.test/protected",
         "https://api.example.test/verify",
     ]
@@ -407,3 +407,139 @@ def test_jsonpath_object_property_is_available_to_next_request_body(
     assert json.loads(sent_requests[1].content) == {
         "values": {"url": record_url}
     }
+
+
+def test_before_script_variables_are_rendered_in_current_request(
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    sent_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent_requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    request = RequestModel(
+        name="Set request variables",
+        method="POST",
+        url="https://{{host}}/{{path}}",
+        headers={"X-{{header_name}}": "{{header_value}}"},
+        params={"{{param_name}}": "{{param_value}}"},
+        body_mode=BodyMode.JSON,
+        body='{"value":"{{body_value}}"}',
+        before_script=(
+            "assert context.request.url == 'https://{{host}}/{{path}}'\n"
+            "assert context.request.body == '{\"value\":\"{{body_value}}\"}'\n"
+            "context.runtime_variables.update({\n"
+            "    'path': 'script-path',\n"
+            "    'header_name': 'script-header',\n"
+            "    'header_value': 'header-from-script',\n"
+            "    'param_name': 'script-param',\n"
+            "    'param_value': 'param-from-script',\n"
+            "    'body_value': 'body-from-script',\n"
+            "})"
+        ),
+    )
+    runner = CollectionRunner(
+        client=client_factory(httpx.MockTransport(handler))
+    )
+
+    summary = runner.run(
+        CollectionModel(name="Before script interpolation", requests=[request]),
+        EnvironmentModel(name="Development", variables={"host": "api.example.test"}),
+    )
+
+    assert summary.succeeded == 1
+    assert summary.failed == 0
+    assert len(sent_requests) == 1
+    sent = sent_requests[0]
+    assert str(sent.url) == (
+        "https://api.example.test/script-path?script-param=param-from-script"
+    )
+    assert sent.headers["x-script-header"] == "header-from-script"
+    assert json.loads(sent.content) == {"value": "body-from-script"}
+
+
+def test_before_script_can_resolve_missing_variable_before_sending(
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    sent_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent_urls.append(str(request.url))
+        return httpx.Response(200)
+
+    request = RequestModel(
+        name="Resolve missing variable",
+        url="https://api.example.test/{{path}}",
+        before_script="context.runtime_variables['path'] = 'resolved'",
+    )
+    runner = CollectionRunner(
+        client=client_factory(httpx.MockTransport(handler))
+    )
+
+    summary = runner.run(
+        CollectionModel(name="Resolve before interpolation", requests=[request])
+    )
+
+    assert summary.succeeded == 1
+    assert summary.failed == 0
+    assert sent_urls == ["https://api.example.test/resolved"]
+
+
+def test_before_script_does_not_override_data_row_variable(
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    sent_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent_urls.append(str(request.url))
+        return httpx.Response(200)
+
+    request = RequestModel(
+        name="Data row precedence",
+        url="https://api.example.test/{{value}}",
+        before_script="context.runtime_variables['value'] = 'runtime'",
+    )
+    runner = CollectionRunner(
+        client=client_factory(httpx.MockTransport(handler))
+    )
+
+    summary = runner.run(
+        CollectionModel(name="Data row precedence", requests=[request]),
+        dataset_rows=[{"value": "row"}],
+    )
+
+    assert summary.succeeded == 1
+    assert summary.failed == 0
+    assert sent_urls == ["https://api.example.test/row"]
+
+
+def test_before_script_leaves_unresolved_variable_as_error(
+    client_factory: Callable[[httpx.BaseTransport], httpx.Client],
+) -> None:
+    sent_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent_urls.append(str(request.url))
+        return httpx.Response(200)
+
+    request = RequestModel(
+        name="Still missing",
+        url="https://api.example.test/{{missing}}",
+        before_script="context.runtime_variables['other'] = 'value'",
+    )
+    runner = CollectionRunner(
+        client=client_factory(httpx.MockTransport(handler))
+    )
+    results: list[RunItemResult] = []
+    runner.request_completed.connect(results.append)
+
+    summary = runner.run(
+        CollectionModel(name="Unresolved after script", requests=[request])
+    )
+
+    assert summary.succeeded == 0
+    assert summary.failed == 1
+    assert sent_urls == []
+    assert results[0].result.error is not None
+    assert "{{missing}}" in results[0].result.error

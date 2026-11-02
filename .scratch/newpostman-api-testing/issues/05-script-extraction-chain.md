@@ -7,7 +7,7 @@
 **Status:** completed
 
 - [x] Request 工作分頁提供 Scripts 分頁以編輯 Before request 與 After request Script；在此功能交付前不顯示空白 Scripts 分頁。
-- [x] Before request Script 可在變數替換後執行，讀取及修改本次解析後的 Request 與 Runtime variables；修改 Runtime variables 不會重新解析本次已替換欄位。
+- [x] Before request Script 先於變數替換執行，讀取及修改本次 Request 與 Runtime variables；Script 設定的 Runtime variables 會參與本次 URL、Headers、Params、Body 的解析。
 - [x] After request Script 可讀取已收到的 Response 並更新 Runtime variables。
 - [x] 使用 Python Script 前向使用者清楚說明腳本屬受信任程式碼，可能執行一般 Python 能力並存取本機檔案；不得宣稱有安全沙箱。
 - [x] Before request Script 發生錯誤時，該 Request 不送出，錯誤納入逐項結果，Runner 繼續後續項目。

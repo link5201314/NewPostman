@@ -358,5 +358,5 @@ with ApiEngine() as engine:
 - Regex extractor 預設取第一個捕獲群組；若表達式沒有該群組，記錄警告且不更新變數。
 - JSONPath 有多筆結果時取第一筆；萃取失敗不覆寫舊值。
 - HTTP 4xx/5xx 仍會回傳 `transport_succeeded=True`；狀態碼斷言屬後續功能。
-- Before/After scripts 是任意 Python 程式碼，不具沙箱保護。Before script 執行於變數替換後，修改 request 會影響本次發送；修改 runtime variables 不會讓本次已解析欄位重新替換。
+- Before/After scripts 是任意 Python 程式碼，不具沙箱保護。Before script 先於變數替換執行；修改 request 與 runtime variables 都會影響本次插值及發送。
 - 本文件程式碼仍是設計原型；現行模組另已實作 Dataset Loader、Qt Runner、取消機制、Project 檔案索引與對應驗證測試。

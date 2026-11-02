@@ -82,27 +82,10 @@ class ApiEngine:
             含 Response 摘要或錯誤訊息的執行結果。
         """
         context = run_context or RunContext(environment=environment)
-        variables = VariableEngine(
-            context.environment,
-            context.runtime_variables,
-            context.data_row,
-        )
         script_engine = ScriptEngine()
         extractor = ResponseExtractor()
         try:
             resolved = request.model_copy(deep=True)
-            resolved.url = variables.render(resolved.url)
-            resolved.headers = {
-                variables.render(key): variables.render(value)
-                for key, value in resolved.headers.items()
-            }
-            resolved.params = {
-                variables.render(key): variables.render(value)
-                for key, value in resolved.params.items()
-            }
-            if resolved.body_mode is not BodyMode.NONE:
-                resolved.body = variables.render(resolved.body)
-
             script_context = ScriptContext(
                 request=resolved,
                 runtime_variables=context.runtime_variables,
@@ -129,6 +112,23 @@ class ApiEngine:
                 logger.error("Before request Script failed | Request=%s", resolved.name)
                 logger.debug("Before request Script exception", exc_info=exc)
                 return ApiResult(error=str(exc))
+
+            variables = VariableEngine(
+                context.environment,
+                context.runtime_variables,
+                context.data_row,
+            )
+            resolved.url = variables.render(resolved.url)
+            resolved.headers = {
+                variables.render(key): variables.render(value)
+                for key, value in resolved.headers.items()
+            }
+            resolved.params = {
+                variables.render(key): variables.render(value)
+                for key, value in resolved.params.items()
+            }
+            if resolved.body_mode is not BodyMode.NONE:
+                resolved.body = variables.render(resolved.body)
 
             content: bytes | None = None
             headers = dict(resolved.headers)

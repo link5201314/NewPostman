@@ -97,15 +97,16 @@ NewPostman/
 
 ## 單次請求流程
 
-1. 以 RunContext 建立變數解析器，將模板套用至 URL、Headers、Params、Body。
-2. 複製 Request 設定後執行 Before request Script；腳本可讀取／修改已解析的 Request 與執行期變數。此時修改變數不會重新套用到本次請求已解析的欄位，會影響後續請求。
-3. 驗證 JSON Body；失敗則在發送前回報錯誤。
-4. 透過 HTTPX 發送請求，記錄耗時、狀態碼、Headers 與本文。收到 4xx/5xx 是傳輸完成，狀態碼不自動等同測試失敗。
-5. 若有 HTTP 回應，執行 After request Script。若此腳本錯誤，記錄錯誤但仍嘗試 Extractors。
-6. 依設定順序萃取回應本文：JSONPath 多筆只取第一筆；正則取第一個擷取群組。未匹配或解析失敗時記錄警告，不覆寫既有變數。
-7. 回傳結構化單次執行結果，供 UI 或 Runner 呈現。
+1. 複製 Request 設定並建立 Script context；欄位在 Before request Script 執行時仍保留 `{{...}}` 樣板。
+2. 執行 Before request Script。腳本可修改本次 Request 副本及 Runtime variables；腳本設定的變數可供本次 URL、Headers、Params、Body 插值使用。
+3. 以目前 RunContext 建立變數解析器，依 Data row > Runtime/Extracted > Environment 優先序解析 URL、Headers、Params、Body。仍未定義的變數使請求在發送前失敗。
+4. 驗證插值後的 JSON Body；失敗則在發送前回報錯誤。
+5. 透過 HTTPX 發送請求，記錄耗時、狀態碼、Headers 與本文。收到 4xx/5xx 是傳輸完成，狀態碼不自動等同測試失敗。
+6. 若有 HTTP 回應，執行 After request Script。若此腳本錯誤，記錄錯誤但仍嘗試 Extractors。
+7. 依設定順序萃取回應本文：JSONPath 多筆只取第一筆；正則取第一個擷取群組。未匹配或解析失敗時記錄警告，不覆寫既有變數。
+8. 回傳結構化單次執行結果，供 UI 或 Runner 呈現。
 
-腳本使用 Python 並視為受信任程式碼，可使用一般 Python 能力，包括存取本機檔案；不具安全沙箱。Scripts 分頁常駐顯示警告，執行單次 Request 或 Runner 時不跳出安全提醒視窗。Before Script 出錯時不送出請求。網路錯誤、模板解析錯誤及腳本錯誤均記錄在單項結果，Runner 繼續後續請求；After Script 出錯仍會執行 Extractors。Runtime variable 與 Extractor 值在單次 Collection Runner 執行中共用，供後續 Request 解析。
+腳本使用 Python 並視為受信任程式碼，可使用一般 Python 能力，包括存取本機檔案；不具安全沙箱。Scripts 分頁常駐顯示警告，執行單次 Request 或 Runner 時不跳出安全提醒視窗。Before Script 出錯時不送出請求。網路錯誤、模板解析錯誤及腳本錯誤均記錄在單項結果，Runner 繼續後續請求；After Script 出錯仍會執行 Extractors。Runtime variable 與 Extractor 值在單次 Collection Runner 執行中共用；Before Script 設定的 Runtime variable 會在本次 Request 的樣板插值時生效，也供後續 Request 使用。
 
 ## Runner 與 Qt 執行緒
 

@@ -27,7 +27,7 @@ Status: ready-for-agent
 11. 作為 API 使用者，我想在變數未定義時於發送前收到清楚錯誤，並確保該 Request 不會送出，以便避免錯誤呼叫服務。
 12. 作為 API 使用者，我想將多個 Request 依序組織為 Collection，以便保存可重複執行的 API 流程。
 13. 作為 API 使用者，我想調整 Collection 中 Request 的順序，以便安排前置登入、資料建立與後續查詢等步驟。
-14. 作為 API 使用者，我想設定 Before request Script，以便在發送前動態修改已解析的 Request 或執行期變數。
+14. 作為 API 使用者，我想設定 Before request Script，以便在發送前動態修改 Request 或執行期變數，並讓新設定的變數參與本次 Request 的解析。
 15. 作為 API 使用者，我想設定 After request Script，以便讀取 Response 並準備後續流程需要的執行期資料。
 16. 作為 API 使用者，我想在使用 Python Script 前看到明確的信任與安全警告，以便了解腳本可執行一般 Python 能力並可能存取本機檔案。
 17. 作為 API 使用者，我想在 Before request Script 發生錯誤時看到錯誤且不發送該 Request，以便避免送出未完成設定的請求。
@@ -68,7 +68,7 @@ Status: ready-for-agent
 - Request 支援 Method、URL、Headers、Params、Body mode（none、JSON、raw）、Before request Script、After request Script 與 Extractors。JSON Body 在變數替換後解析驗證；raw Body 原樣送出。
 - VariableEngine 依 Data row > Runtime/Extracted > Environment 優先序解析 `{{key}}`。未定義變數在發送前使該項失敗；RunContext 每個 Iteration 建立一次，Runtime variable 不跨 Iteration 保留。
 - Extractor 僅讀取 Response Body。JSONPath 多筆結果取第一筆；Regex 使用指定捕獲群組，預設第一個捕獲群組。未匹配或錯誤記錄警告且不覆寫既有值。
-- **腳本決策遵循 ADR-0001**：Before/After Script 使用 Python，透過明確上下文介面提供 Request、Response、Runtime variables；視為使用者信任程式碼，可具備一般 Python 能力。腳本編輯介面需清楚顯示信任邊界，不在執行時跳出提醒視窗，且不得宣稱具有沙箱隔離。Before Script 在變數替換後執行，可修改本次解析後的 Request 與 Runtime variables；修改 Runtime variables 不會重新解析本次已替換欄位。Before Script 失敗則不發送；After Script 失敗仍執行 Extractors。JavaScript 相容性或不受信任腳本的隔離另行設計。
+- **腳本決策遵循 ADR-0001**：Before/After Script 使用 Python，透過明確上下文介面提供 Request、Response、Runtime variables；視為使用者信任程式碼，可具備一般 Python 能力。腳本編輯介面需清楚顯示信任邊界，不在執行時跳出提醒視窗，且不得宣稱具有沙箱隔離。Before Script 先於 URL、Headers、Params、Body 的變數替換執行；此時 `context.request` 保留樣板，腳本可修改 Request 與 Runtime variables，之後以最新 Runtime variables 解析本次 Request。解析仍缺少變數則不發送；JSON Body 在替換後驗證。Before Script 失敗則不發送；After Script 失敗仍執行 Extractors。JavaScript 相容性或不受信任腳本的隔離另行設計。
 - Collection 直接依序包含 Request，不要求跨 Collection 共用請求引用。Runner 順序執行，不平行呼叫，以支援鏈式變數。
 - Dataset 的 CSV 使用第一列作為欄名；JSON 使用物件陣列，每個物件代表一列。無 Dataset 時只有一個 Iteration。
 - Project 使用索引 JSON 參照獨立 Collection、Environment JSON；Dataset 保留 CSV/JSON 原檔。優先使用相對路徑，讀取後以 Pydantic 驗證。
