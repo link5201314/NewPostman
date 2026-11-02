@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
 from pytestqt.qtbot import QtBot
 
 from newpostman.core.collection_runner import CollectionRunner, RunItemResult
@@ -309,7 +309,7 @@ def test_regex_extractor_uses_configured_group_and_invalid_extractors_preserve_v
     assert results[1].result.error is None
 
 
-def test_request_editor_exposes_scripts_and_trust_warning(
+def test_request_editor_exposes_scripts_without_security_popup(
     qtbot: QtBot,
     client_factory: Callable[[httpx.BaseTransport], httpx.Client],
     monkeypatch: pytest.MonkeyPatch,
@@ -322,7 +322,8 @@ def test_request_editor_exposes_scripts_and_trust_warning(
         return httpx.Response(200, json={"ok": True})
 
     monkeypatch.setattr(
-        "newpostman.ui.script_warning.QMessageBox.warning",
+        QMessageBox,
+        "warning",
         lambda _parent, title, text: warnings.append((title, text)),
     )
     client = client_factory(httpx.MockTransport(handler))
@@ -347,9 +348,9 @@ def test_request_editor_exposes_scripts_and_trust_warning(
     with qtbot.waitSignal(editor.request_succeeded, timeout=3000):
         qtbot.mouseClick(editor.send_button, Qt.MouseButton.LeftButton)
 
-    assert warnings
-    assert "受信任" in warnings[0][1]
-    assert "不提供安全沙箱" in warnings[0][1]
+    assert not warnings
+    assert "受信任程式碼" in editor.script_trust_notice.text()
+    assert "不提供沙箱隔離" in editor.script_trust_notice.text()
     assert sent_headers[0]["x-test"] == "1"
 
 

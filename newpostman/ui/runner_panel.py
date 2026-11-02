@@ -22,7 +22,6 @@ from newpostman.core.collection_runner import (
 )
 from newpostman.core.dataset_loader import DatasetLoadError, DatasetLoader
 from newpostman.core.project_store import ProjectStore
-from newpostman.ui.script_warning import warn_about_trusted_scripts
 
 
 class RunnerPanel(QWidget):
@@ -162,11 +161,6 @@ class RunnerPanel(QWidget):
             except (DatasetLoadError, ValueError, OSError) as exc:
                 QMessageBox.warning(self, "無法載入 Dataset", str(exc))
                 return
-        if any(
-            request.before_script.strip() or request.after_script.strip()
-            for request in collection.requests
-        ):
-            warn_about_trusted_scripts(self)
         self.refresh_environment()
         self.log_view.clear()
         self.summary_label.setText("執行中…")

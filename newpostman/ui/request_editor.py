@@ -29,7 +29,6 @@ from newpostman.models.request import (
     ExtractorType,
     RequestModel,
 )
-from newpostman.ui.script_warning import warn_about_trusted_scripts
 from newpostman.ui.response_view import ResponseView
 
 logger = logging.getLogger(__name__)
@@ -466,8 +465,6 @@ class RequestEditor(QWidget):
         self.response_view.mark_request_started()
         try:
             request = self.build_request()
-            if request.before_script.strip() or request.after_script.strip():
-                warn_about_trusted_scripts(self)
             result = self._engine.execute(request, self._environment)
         except (ValueError, httpx.InvalidURL) as exc:
             self._show_error(str(exc))

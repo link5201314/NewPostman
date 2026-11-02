@@ -109,10 +109,6 @@ def test_script_context_log_appears_in_ui_and_file(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    monkeypatch.setattr(
-        "newpostman.ui.script_warning.QMessageBox.warning",
-        lambda *_args: None,
-    )
     service = LoggingService(tmp_path / "logging.json")
     with httpx.Client(
         transport=httpx.MockTransport(
@@ -206,9 +202,10 @@ def test_runner_logs_are_forwarded_to_common_diagnostic_panel(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
+    security_warnings: list[str] = []
     monkeypatch.setattr(
-        "newpostman.ui.script_warning.QMessageBox.warning",
-        lambda *_args: None,
+        "newpostman.ui.runner_panel.QMessageBox.warning",
+        lambda _parent, title, message: security_warnings.append(title),
     )
     with httpx.Client(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, text="done"))
@@ -248,5 +245,6 @@ def test_runner_logs_are_forwarded_to_common_diagnostic_panel(
             assert "runner custom message" in diagnostics
             assert "HTTP response received" in diagnostics
             assert "https://api.example.test/entry" in diagnostics
+            assert not security_warnings
         finally:
             service.close()

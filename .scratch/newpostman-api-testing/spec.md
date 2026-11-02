@@ -68,7 +68,7 @@ Status: ready-for-agent
 - Request 支援 Method、URL、Headers、Params、Body mode（none、JSON、raw）、Before request Script、After request Script 與 Extractors。JSON Body 在變數替換後解析驗證；raw Body 原樣送出。
 - VariableEngine 依 Data row > Runtime/Extracted > Environment 優先序解析 `{{key}}`。未定義變數在發送前使該項失敗；RunContext 每個 Iteration 建立一次，Runtime variable 不跨 Iteration 保留。
 - Extractor 僅讀取 Response Body。JSONPath 多筆結果取第一筆；Regex 使用指定捕獲群組，預設第一個捕獲群組。未匹配或錯誤記錄警告且不覆寫既有值。
-- **腳本決策遵循 ADR-0001**：Before/After Script 使用 Python，透過明確上下文介面提供 Request、Response、Runtime variables；視為使用者信任程式碼，可具備一般 Python 能力。執行前必須清楚警告，不得宣稱具有沙箱隔離。Before Script 在變數替換後執行，可修改本次解析後的 Request 與 Runtime variables；修改 Runtime variables 不會重新解析本次已替換欄位。Before Script 失敗則不發送；After Script 失敗仍執行 Extractors。JavaScript 相容性或不受信任腳本的隔離另行設計。
+- **腳本決策遵循 ADR-0001**：Before/After Script 使用 Python，透過明確上下文介面提供 Request、Response、Runtime variables；視為使用者信任程式碼，可具備一般 Python 能力。腳本編輯介面需清楚顯示信任邊界，不在執行時跳出提醒視窗，且不得宣稱具有沙箱隔離。Before Script 在變數替換後執行，可修改本次解析後的 Request 與 Runtime variables；修改 Runtime variables 不會重新解析本次已替換欄位。Before Script 失敗則不發送；After Script 失敗仍執行 Extractors。JavaScript 相容性或不受信任腳本的隔離另行設計。
 - Collection 直接依序包含 Request，不要求跨 Collection 共用請求引用。Runner 順序執行，不平行呼叫，以支援鏈式變數。
 - Dataset 的 CSV 使用第一列作為欄名；JSON 使用物件陣列，每個物件代表一列。無 Dataset 時只有一個 Iteration。
 - Project 使用索引 JSON 參照獨立 Collection、Environment JSON；Dataset 保留 CSV/JSON 原檔。優先使用相對路徑，讀取後以 Pydantic 驗證。

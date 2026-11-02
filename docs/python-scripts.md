@@ -75,6 +75,6 @@ if context.response is not None:
 
 ## 安全提醒
 
-Python Script 是受信任程式碼，具備一般 Python 權限，可能讀寫本機檔案、存取環境資訊或執行其他本機操作。NewPostman **不提供安全沙箱**。只執行你信任的 Script；不要把不受信任的腳本貼入應用程式執行。
+Python Script 是受信任程式碼，具備一般 Python 權限，可能讀寫本機檔案、存取環境資訊或執行其他本機操作。NewPostman **不提供安全沙箱**。腳本編輯頁會常駐顯示此提醒；執行 Request 或 Runner 時不會另外跳出提醒視窗。只執行你信任的 Script；不要把不受信任的腳本貼入應用程式執行。
 
 目前明確提供的腳本介面為 `context.request`、`context.response`、`context.runtime_variables` 與 `context.log(message)`。未列出的內部類別方法或實作細節不保證維持相容；建議只依賴本指南列出的介面與行為。
